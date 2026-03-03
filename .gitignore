@@ -1,0 +1,72 @@
+# Laravel
+/.env
+/.env.backup
+/.env.production
+/.env.testing
+/.phpunit.result.cache
+/auth.json
+/bootstrap/cache/*
+!/bootstrap/cache/.gitignore
+/node_modules
+/public/build
+/public/hot
+/public/storage
+/storage/*.key
+/storage/app/*
+!/storage/app/.gitignore
+/storage/framework/cache/*
+!/storage/framework/cache/.gitignore
+/storage/framework/sessions/*
+!/storage/framework/sessions/.gitignore
+/storage/framework/testing/*
+!/storage/framework/testing/.gitignore
+/storage/framework/views/*
+!/storage/framework/views/.gitignore
+/storage/logs/*
+!/storage/logs/.gitignore
+/storage/pail
+/vendor
+
+# Testing
+/.phpunit.cache
+.phpunit.result.cache
+
+# IDE & Editors
+/.fleet
+/.idea
+/.nova
+/.phpactor.json
+/.vscode
+/.zed
+*.swp
+*.swo
+*~
+
+# OS Files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini
+
+# Development Tools
+Homestead.json
+Homestead.yaml
+npm-debug.log
+yarn-error.log
+pnpm-debug.log
+.pnpm-debug.log
+
+# Laravel Sail
+/.ddev
+
+# Logs
+*.log
+
+# Temporary files
+*.tmp
+*.temp
+.cache
