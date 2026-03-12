@@ -30,13 +30,13 @@ class DomainTest extends BaseTest
                 'message' => 'Не удалось извлечь домен из URL',
             ];
         }
-        
+
         // Убираем www. если есть
         $domain = preg_replace('/^www\./', '', $url);
-        
+
         try {
             $whoisData = $this->getWhoisData($domain);
-            
+
             if (!$whoisData) {
                 return [
                     'status' => 'failed',
@@ -47,11 +47,11 @@ class DomainTest extends BaseTest
                     'message' => 'Не удалось получить данные WHOIS',
                 ];
             }
-            
+
             $registeredAt = $this->extractRegistrationDate($whoisData);
             $expiresAt = $this->extractExpirationDate($whoisData);
             $registrar = $this->extractRegistrar($whoisData);
-            
+
             if (!$registeredAt) {
                 return [
                     'status' => 'failed',
@@ -62,10 +62,10 @@ class DomainTest extends BaseTest
                     'message' => 'Не удалось определить дату регистрации домена',
                 ];
             }
-            
+
             $daysSinceRegistration = floor((time() - strtotime($registeredAt)) / 86400);
             $isValid = $daysSinceRegistration > 20;
-            
+
             $daysUntilExpiry = null;
             if ($expiresAt) {
                 $daysUntilExpiry = floor((strtotime($expiresAt) - time()) / 86400);
@@ -73,7 +73,7 @@ class DomainTest extends BaseTest
             } else {
                 $isWarning = false;
             }
-            
+
             return [
                 'status' => $this->determineStatus($isValid, $isWarning),
                 'value' => [
@@ -84,8 +84,8 @@ class DomainTest extends BaseTest
                     'days_until_expiry' => $daysUntilExpiry,
                     'registrar' => $registrar,
                 ],
-                'message' => $isValid 
-                    ? ($daysUntilExpiry !== null 
+                'message' => $isValid
+                    ? ($daysUntilExpiry !== null
                         ? "Домен зарегистрирован {$daysSinceRegistration} дней назад, истекает через {$daysUntilExpiry} дней"
                         : "Домен зарегистрирован {$daysSinceRegistration} дней назад")
                     : "Домен зарегистрирован менее 20 дней назад ({$daysSinceRegistration} дней)",
@@ -109,39 +109,39 @@ class DomainTest extends BaseTest
     {
         // Используем системную команду whois, если доступна
         if (function_exists('shell_exec') && !empty(shell_exec('which whois'))) {
-            $output = @shell_exec("whois {$domain} 2>&1");
+            $output = @shell_exec("whois " . escapeshellarg($domain) . " 2>&1");
             return $output ?: null;
         }
-        
+
         // Пробуем использовать TCP-соединение к WHOIS серверу
         try {
             $whoisServer = $this->getWhoisServer($domain);
             if (!$whoisServer) {
                 return null;
             }
-            
+
             $socket = @fsockopen($whoisServer, 43, $errno, $errstr, 10);
             if (!$socket) {
                 return null;
             }
-            
+
             // Отправляем запрос
             fwrite($socket, $domain . "\r\n");
-            
+
             // Читаем ответ
             $response = '';
             while (!feof($socket)) {
                 $response .= fgets($socket, 1024);
             }
-            
+
             fclose($socket);
-            
+
             return !empty($response) ? $response : null;
         } catch (\Exception $e) {
             return null;
         }
     }
-    
+
     /**
      * Определить WHOIS сервер для домена
      */
@@ -150,7 +150,7 @@ class DomainTest extends BaseTest
         // Определяем TLD домена
         $parts = explode('.', $domain);
         $tld = strtolower(end($parts));
-        
+
         // Маппинг TLD на WHOIS серверы
         $servers = [
             'ru' => 'whois.tcinet.ru',
@@ -172,7 +172,7 @@ class DomainTest extends BaseTest
             'by' => 'whois.cctld.by',
             'kz' => 'whois.nic.kz',
         ];
-        
+
         return $servers[$tld] ?? null;
     }
 
@@ -189,7 +189,7 @@ class DomainTest extends BaseTest
             '/Registration Date:\s*(.+)/i',
             '/created:\s*(.+)/i',
         ];
-        
+
         foreach ($patterns as $pattern) {
             if (preg_match($pattern, $whoisData, $matches)) {
                 $date = trim($matches[1]);
@@ -199,7 +199,7 @@ class DomainTest extends BaseTest
                 }
             }
         }
-        
+
         return null;
     }
 
@@ -215,7 +215,7 @@ class DomainTest extends BaseTest
             '/Expires:\s*(.+)/i',
             '/expires:\s*(.+)/i',
         ];
-        
+
         foreach ($patterns as $pattern) {
             if (preg_match($pattern, $whoisData, $matches)) {
                 $date = trim($matches[1]);
@@ -225,7 +225,7 @@ class DomainTest extends BaseTest
                 }
             }
         }
-        
+
         return null;
     }
 
@@ -238,13 +238,13 @@ class DomainTest extends BaseTest
             '/Registrar:\s*(.+)/i',
             '/Registrar Name:\s*(.+)/i',
         ];
-        
+
         foreach ($patterns as $pattern) {
             if (preg_match($pattern, $whoisData, $matches)) {
                 return trim($matches[1]);
             }
         }
-        
+
         return null;
     }
 }
