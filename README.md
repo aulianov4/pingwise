@@ -1,71 +1,68 @@
 # PingWise
 
-PingWise — сервис мониторинга доступности сайтов и SEO-показателей.
+PingWise — сервис мониторинга доступности сайтов, проверки SSL сертификатов и регистрации доменов.
 
-## Развёртывание в продакшн
+## Описание
 
-1. Клонирование и настройка:
+Сервис позволяет отслеживать состояние ваших сайтов, получать уведомления о проблемах и анализировать историю проверок. Каждый тест можно индивидуально включать и отключать для каждого сайта, а также настраивать интервалы проверок.
+
+## Тесты
+
+### 1. Доступность сайта
+- **Описание**: Проверяет доступность сайта по HTTP/HTTPS
+- **Интервал по умолчанию**: 5 минут
+- **Статусы**: `success` (сайт доступен), `failed` (сайт недоступен)
+
+### 2. SSL сертификат
+- **Описание**: Проверяет валидность SSL сертификата (не самоподписанный, срок действия более 3 дней)
+- **Интервал по умолчанию**: 24 часа
+- **Статусы**: `success` (сертификат валиден), `warning` (истекает менее чем через 30 дней), `failed` (самоподписанный или истекает менее чем через 3 дня)
+
+### 3. Регистрация домена
+- **Описание**: Проверяет, что домен зарегистрирован более 20 дней назад
+- **Интервал по умолчанию**: 24 часа
+- **Статусы**: `success` (домен зарегистрирован более 20 дней), `failed` (домен зарегистрирован менее 20 дней)
+
+## Консольные команды
+
+### `pingwise:check`
+Запустить проверки для сайтов.
+
 ```bash
-cd /var/www
-sudo git clone <repository-url> pingwise
-cd pingwise
-sudo chown -R www-data:www-data .
+# Запустить все запланированные проверки для всех активных сайтов
+php artisan pingwise:check
+
+# Запустить конкретный тест для конкретного сайта
+php artisan pingwise:check --site=1 --test=availability
+php artisan pingwise:check --site=1 --test=ssl
+php artisan pingwise:check --site=1 --test=domain
 ```
 
-2. Установка зависимостей:
+### `pingwise:cleanup`
+Удалить результаты тестов старше года.
+
 ```bash
-composer install --optimize-autoloader --no-dev
-npm ci
-npm run build
+php artisan pingwise:cleanup
 ```
 
-3. Настройка окружения:
+### `pingwise:init-tests`
+Инициализировать тесты для сайта(ов).
+
 ```bash
-cp .env.example .env
-php artisan key:generate
+# Инициализировать тесты для конкретного сайта
+php artisan pingwise:init-tests --site=1
+
+# Инициализировать тесты для всех сайтов
+php artisan pingwise:init-tests
 ```
 
-4. Настройка `.env` для продакшн:
-```env
-APP_ENV=production
-APP_DEBUG=false
-APP_URL=https://your-domain.com
+## Автоматические проверки
 
-DB_CONNECTION=mysql
-DB_HOST=127.0.0.1
-DB_PORT=3306
-DB_DATABASE=pingwise
-DB_USERNAME=pingwise_user
-DB_PASSWORD=secure_password
-```
+Проверки запускаются автоматически по расписанию:
+- `pingwise:check` — каждые 5 минут
+- `pingwise:cleanup` — ежедневно в 03:00
 
-5. Создание базы данных:
-```bash
-mysql -u root -p
-```
-```sql
-CREATE DATABASE pingwise CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-CREATE USER 'pingwise_user'@'localhost' IDENTIFIED BY 'secure_password';
-GRANT ALL PRIVILEGES ON pingwise.* TO 'pingwise_user'@'localhost';
-FLUSH PRIVILEGES;
-EXIT;
-```
-
-6. Выполнение миграций:
-```bash
-php artisan migrate --force
-```
-
-7. Оптимизация приложения:
-```bash
-php artisan config:cache
-php artisan route:cache
-php artisan view:cache
-php artisan event:cache
-```
-
-8. Настройка прав доступа:
-```bash
-sudo chown -R www-data:www-data storage bootstrap/cache
-sudo chmod -R 775 storage bootstrap/cache
+Для работы автоматических проверок добавьте в crontab:
+```cron
+* * * * * cd /var/www/pingwise && php artisan schedule:run >> /dev/null 2>&1
 ```
