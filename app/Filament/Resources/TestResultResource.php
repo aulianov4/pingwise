@@ -114,23 +114,31 @@ class TestResultResource extends Resource
             ->filters([
                 Tables\Filters\SelectFilter::make('site_id')
                     ->label('Сайт')
-                    ->relationship('site', 'name')
+                    ->options(function () {
+                        return Site::where('user_id', Auth::id())
+                            ->orderBy('name')
+                            ->pluck('name', 'id')
+                            ->toArray();
+                    })
                     ->searchable()
-                    ->preload(),
+                    ->preload()
+                    ->multiple(),
                 Tables\Filters\SelectFilter::make('test_type')
                     ->label('Тип теста')
                     ->options([
                         'availability' => 'Доступность сайта',
                         'ssl' => 'SSL сертификат',
                         'domain' => 'Регистрация домена',
-                    ]),
+                    ])
+                    ->multiple(),
                 Tables\Filters\SelectFilter::make('status')
                     ->label('Статус')
                     ->options([
                         'success' => 'Успешно',
                         'failed' => 'Ошибка',
                         'warning' => 'Предупреждение',
-                    ]),
+                    ])
+                    ->multiple(),
                 Tables\Filters\Filter::make('period')
                     ->label('Период')
                     ->form([
