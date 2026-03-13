@@ -3,6 +3,8 @@
 namespace App\Tests;
 
 use App\Models\Site;
+use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 
 class DomainTest extends BaseTest
 {
@@ -107,39 +109,103 @@ class DomainTest extends BaseTest
      */
     protected function getWhoisData(string $domain): ?string
     {
-        // Используем системную команду whois, если доступна
-        if (function_exists('shell_exec') && !empty(shell_exec('which whois'))) {
-            $output = @shell_exec("whois " . escapeshellarg($domain) . " 2>&1");
-            return $output ?: null;
+        // Метод 1: Используем системную команду whois, если доступна
+        if (function_exists('shell_exec')) {
+            $whoisCommand = trim(shell_exec('which whois 2>/dev/null') ?: '');
+            if (!empty($whoisCommand)) {
+                $output = @shell_exec("{$whoisCommand} " . escapeshellarg($domain) . " 2>&1");
+                if ($output && strlen($output) > 50 && !preg_match('/No entries found|No match|not found|NOT FOUND|No data found/i', $output)) {
+                    return $output;
+                }
+            }
         }
 
-        // Пробуем использовать TCP-соединение к WHOIS серверу
+        // Метод 2: TCP-соединение к WHOIS серверу
+        $whoisServer = $this->getWhoisServer($domain);
+        if ($whoisServer) {
+            // Для доменов с поддоменами пробуем также без первого поддомена
+            $queries = [$domain];
+            $parts = explode('.', $domain);
+            if (count($parts) > 3) {
+                $queries[] = implode('.', array_slice($parts, 1));
+            }
+            
+            foreach ($queries as $query) {
+                try {
+                    $socket = @fsockopen($whoisServer, 43, $errno, $errstr, 15);
+                    if ($socket) {
+                        stream_set_timeout($socket, 15);
+                        stream_set_blocking($socket, true);
+                        fwrite($socket, $query . "\r\n");
+                        
+                        $response = '';
+                        $startTime = time();
+                        $meta = stream_get_meta_data($socket);
+                        
+                        while (!feof($socket) && (time() - $startTime) < 15 && !$meta['timed_out']) {
+                            $line = fgets($socket, 1024);
+                            if ($line === false) {
+                                break;
+                            }
+                            $response .= $line;
+                            $meta = stream_get_meta_data($socket);
+                        }
+
+                        fclose($socket);
+
+                        if (!empty($response) && strlen($response) > 50 && !preg_match('/No entries found|No match|not found|NOT FOUND|No data found/i', $response)) {
+                            return $response;
+                        }
+                    }
+                } catch (\Exception $e) {
+                    // Продолжаем попытки с другими методами
+                }
+            }
+        }
+
+        // Метод 3: HTTP API через внешние сервисы (fallback)
+        $httpResult = $this->getWhoisViaHttp($domain);
+        if ($httpResult) {
+            return $httpResult;
+        }
+
+        Log::error("Не удалось получить WHOIS данные для домена: {$domain}");
+        return null;
+    }
+
+    /**
+     * Получить WHOIS через HTTP API (fallback метод)
+     */
+    protected function getWhoisViaHttp(string $domain): ?string
+    {
+        // Пробуем бесплатный API сервис
         try {
-            $whoisServer = $this->getWhoisServer($domain);
-            if (!$whoisServer) {
-                return null;
+            $response = Http::timeout(10)
+                ->get("https://ipwhois.app/json/{$domain}");
+            
+            if ($response->successful()) {
+                $data = $response->json();
+                if (isset($data['success']) && $data['success']) {
+                    $whoisText = '';
+                    if (isset($data['created'])) {
+                        $whoisText .= "Creation Date: " . $data['created'] . "\n";
+                    }
+                    if (isset($data['expires'])) {
+                        $whoisText .= "Expiry Date: " . $data['expires'] . "\n";
+                    }
+                    if (isset($data['registrar'])) {
+                        $whoisText .= "Registrar: " . $data['registrar'] . "\n";
+                    }
+                    if (!empty($whoisText)) {
+                        return $whoisText;
+                    }
+                }
             }
-
-            $socket = @fsockopen($whoisServer, 43, $errno, $errstr, 10);
-            if (!$socket) {
-                return null;
-            }
-
-            // Отправляем запрос
-            fwrite($socket, $domain . "\r\n");
-
-            // Читаем ответ
-            $response = '';
-            while (!feof($socket)) {
-                $response .= fgets($socket, 1024);
-            }
-
-            fclose($socket);
-
-            return !empty($response) ? $response : null;
         } catch (\Exception $e) {
-            return null;
+            // Продолжаем без этого метода
         }
+
+        return null;
     }
 
     /**
@@ -147,9 +213,22 @@ class DomainTest extends BaseTest
      */
     protected function getWhoisServer(string $domain): ?string
     {
-        // Определяем TLD домена
+        // Определяем TLD домена с учетом составных TLD (com.ru, org.ru, net.ru и т.д.)
         $parts = explode('.', $domain);
         $tld = strtolower(end($parts));
+        
+        // Проверяем составные TLD для российских доменов
+        if (count($parts) >= 2) {
+            $secondLevel = strtolower($parts[count($parts) - 2]);
+            $combinedTld = $secondLevel . '.' . $tld;
+            
+            // Составные TLD для .ru доменов
+            $ruCombinedTlds = ['com.ru', 'org.ru', 'net.ru', 'pp.ru', 'msk.ru', 'spb.ru'];
+            if (in_array($combinedTld, $ruCombinedTlds)) {
+                // Для всех .ru доменов (включая составные) используем один сервер
+                return 'whois.tcinet.ru';
+            }
+        }
 
         // Маппинг TLD на WHOIS серверы
         $servers = [
@@ -181,26 +260,18 @@ class DomainTest extends BaseTest
      */
     protected function extractRegistrationDate(string $whoisData): ?string
     {
-        // Паттерны для разных регистраторов
         $patterns = [
             '/Creation Date:\s*(.+)/i',
             '/Created:\s*(.+)/i',
             '/Registered on:\s*(.+)/i',
             '/Registration Date:\s*(.+)/i',
             '/created:\s*(.+)/i',
+            '/created date:\s*(.+)/i',
+            '/дата создания:\s*(.+)/i',
+            '/registered:\s*(.+)/i',
         ];
 
-        foreach ($patterns as $pattern) {
-            if (preg_match($pattern, $whoisData, $matches)) {
-                $date = trim($matches[1]);
-                $timestamp = strtotime($date);
-                if ($timestamp) {
-                    return date('Y-m-d H:i:s', $timestamp);
-                }
-            }
-        }
-
-        return null;
+        return $this->parseDateFromWhois($whoisData, $patterns);
     }
 
     /**
@@ -214,14 +285,37 @@ class DomainTest extends BaseTest
             '/Registry Expiry Date:\s*(.+)/i',
             '/Expires:\s*(.+)/i',
             '/expires:\s*(.+)/i',
+            '/paid-till:\s*(.+)/i',
+            '/paid till:\s*(.+)/i',
+            '/дата окончания:\s*(.+)/i',
         ];
 
+        return $this->parseDateFromWhois($whoisData, $patterns);
+    }
+
+    /**
+     * Парсинг даты из WHOIS данных
+     */
+    protected function parseDateFromWhois(string $whoisData, array $patterns): ?string
+    {
         foreach ($patterns as $pattern) {
             if (preg_match($pattern, $whoisData, $matches)) {
                 $date = trim($matches[1]);
+                $date = preg_replace('/\s+\(.*?\)/', '', $date);
+                $date = trim($date, " \t\n\r\0\x0B.");
+                
+                // Пробуем strtotime
                 $timestamp = strtotime($date);
-                if ($timestamp) {
+                if ($timestamp && $timestamp > 0) {
                     return date('Y-m-d H:i:s', $timestamp);
+                }
+                
+                // Если strtotime не сработал, пробуем парсить вручную
+                if (preg_match('/(\d{4})[\.\-](\d{2})[\.\-](\d{2})/', $date, $dateMatches)) {
+                    $timestamp = mktime(0, 0, 0, (int)$dateMatches[2], (int)$dateMatches[3], (int)$dateMatches[1]);
+                    if ($timestamp) {
+                        return date('Y-m-d H:i:s', $timestamp);
+                    }
                 }
             }
         }

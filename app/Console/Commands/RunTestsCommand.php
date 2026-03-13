@@ -40,11 +40,24 @@ class RunTestsCommand extends Command
                 return Command::FAILURE;
             }
 
-            $this->info("Запуск теста {$testType} для сайта: {$site->name}");
+            $this->info("Запуск теста {$testType} для сайта: {$site->name} ({$site->url})");
             $result = $testService->runTest($site, $testType);
             
             if ($result) {
-                $this->info("Результат: {$result->status} - {$result->message}");
+                $statusColor = match($result->status) {
+                    'success' => 'green',
+                    'failed' => 'red',
+                    'warning' => 'yellow',
+                    default => 'white',
+                };
+                
+                $this->line("Статус: <fg={$statusColor}>{$result->status}</>");
+                $this->line("Сообщение: {$result->message}");
+                
+                if ($result->value) {
+                    $this->line("Детали: " . json_encode($result->value, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT));
+                }
+                
                 return Command::SUCCESS;
             } else {
                 $this->error("Тест {$testType} не найден");
