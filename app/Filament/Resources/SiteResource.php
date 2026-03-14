@@ -11,6 +11,7 @@ use Filament\Actions\BulkActionGroup;
 use Filament\Actions\DeleteAction;
 use Filament\Actions\DeleteBulkAction;
 use Filament\Actions\EditAction;
+use Filament\Actions\ViewAction;
 use Filament\Forms;
 use Filament\Resources\Resource;
 use Filament\Schemas\Components\Section;
@@ -77,12 +78,12 @@ class SiteResource extends Resource
                                     ->label('Интервал (минуты)')
                                     ->numeric()
                                     ->required()
-                                    ->default(fn ($record, $get) => 
+                                    ->default(fn ($record, $get) =>
                                         app(TestService::class)->getTest($get('test_type'))?->getDefaultInterval() ?? 60
                                     ),
                             ])
                             ->defaultItems(0)
-                            ->itemLabel(fn (array $state): ?string => 
+                            ->itemLabel(fn (array $state): ?string =>
                                 app(TestService::class)->getTest($state['test_type'] ?? '')?->getName()
                             )
                             ->collapsible()
@@ -146,14 +147,14 @@ class SiteResource extends Resource
                         $testService = app(TestService::class);
                         $runCount = 0;
                         $errors = [];
-                        
+
                         try {
                             // Проверяем, инициализированы ли тесты
                             if ($record->siteTests()->count() === 0) {
                                 $testService->initializeTestsForSite($record);
                                 $record->refresh();
                             }
-                            
+
                             foreach ($testService->getAllTests() as $testType => $test) {
                                 if ($record->isTestEnabled($testType)) {
                                     try {
@@ -167,7 +168,7 @@ class SiteResource extends Resource
                                     }
                                 }
                             }
-                            
+
                             if (count($errors) > 0) {
                                 \Filament\Notifications\Notification::make()
                                     ->title('Проверки выполнены с ошибками')
@@ -191,6 +192,7 @@ class SiteResource extends Resource
                         }
                     })
                     ->requiresConfirmation(),
+                ViewAction::make(),
                 EditAction::make(),
                 DeleteAction::make(),
             ])
@@ -213,6 +215,7 @@ class SiteResource extends Resource
         return [
             'index' => Pages\ListSites::route('/'),
             'create' => Pages\CreateSite::route('/create'),
+            'view' => Pages\ViewSite::route('/{record}'),
             'edit' => Pages\EditSite::route('/{record}/edit'),
         ];
     }
