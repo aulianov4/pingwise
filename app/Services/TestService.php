@@ -48,6 +48,12 @@ class TestService
             return null;
         }
 
+        // Получаем предыдущий результат для сравнения статуса
+        $previousResult = TestResult::where('site_id', $site->id)
+            ->where('test_type', $testType)
+            ->latest('checked_at')
+            ->first();
+
         // Получаем DTO от теста
         $resultData = $test->run($site);
 
@@ -62,6 +68,11 @@ class TestService
         ]);
 
         Log::info("Test result: site={$site->id} ({$site->name}), test={$testType}, status={$result->status}, message={$result->message}");
+
+        // Диспатч события при смене статуса
+        if (!$previousResult || $previousResult->status !== $result->status) {
+            TestStatusChanged::dispatch($site, $result, $previousResult);
+        }
 
         return $result;
     }

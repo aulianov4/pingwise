@@ -18,3 +18,14 @@ Schedule::command('pingwise:check')
 Schedule::command('pingwise:cleanup')
     ->dailyAt('03:00')
     ->withoutOverlapping();
+
+// Синхронизация Telegram-групп каждые 5 минут
+Schedule::command('pingwise:telegram:sync')
+    ->everyFiveMinutes()
+    ->withoutOverlapping();
+
+// Ежесуточное саммари в Telegram в 09:00
+Schedule::command('pingwise:telegram:summary')
+    ->dailyAt('09:00')
+    ->withoutOverlapping();
+

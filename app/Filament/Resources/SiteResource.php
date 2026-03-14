@@ -4,6 +4,7 @@ namespace App\Filament\Resources;
 
 use App\Filament\Resources\SiteResource\Pages;
 use App\Models\Site;
+use App\Models\TelegramChat;
 use App\Services\TestService;
 use BackedEnum;
 use Filament\Actions\Action;
@@ -14,6 +15,7 @@ use Filament\Actions\EditAction;
 use Filament\Actions\ViewAction;
 use Filament\Forms;
 use Filament\Resources\Resource;
+use Filament\Schemas\Components\Grid;
 use Filament\Schemas\Components\Section;
 use Filament\Schemas\Schema;
 use Filament\Tables;
@@ -37,19 +39,22 @@ class SiteResource extends Resource
     {
         return $schema
             ->schema([
-                Forms\Components\TextInput::make('name')
-                    ->label('Название')
-                    ->required()
-                    ->maxLength(255),
-                Forms\Components\TextInput::make('url')
-                    ->label('URL')
-                    ->required()
-                    ->url()
-                    ->maxLength(255)
-                    ->helperText('Например: https://example.com'),
-                Forms\Components\Toggle::make('is_active')
-                    ->label('Активен')
-                    ->default(true),
+                Grid::make(3)
+                    ->schema([
+                        Forms\Components\TextInput::make('name')
+                            ->label('Название')
+                            ->required()
+                            ->maxLength(255),
+                        Forms\Components\TextInput::make('url')
+                            ->label('URL')
+                            ->required()
+                            ->url()
+                            ->maxLength(255)
+                            ->helperText('Например: https://example.com'),
+                        Forms\Components\Toggle::make('is_active')
+                            ->label('Активен')
+                            ->default(true),
+                    ]),
                 Section::make('Настройки тестов')
                     ->schema([
                         Forms\Components\Repeater::make('siteTests')
@@ -92,7 +97,28 @@ class SiteResource extends Resource
                             ->reorderable(false),
                     ])
                     ->visibleOn('edit')
-                    ->collapsible(),
+                    ->collapsible()
+                    ->columnSpanFull(),
+                Section::make('Telegram-уведомления')
+                    ->schema([
+                        Forms\Components\Select::make('telegram_chat_id')
+                            ->label('Telegram-группа')
+                            ->options(fn () => TelegramChat::pluck('title', 'id'))
+                            ->placeholder('Не выбрана')
+                            ->searchable()
+                            ->helperText('Добавьте бота в группу и выполните команду: php artisan pingwise:telegram:sync'),
+                        Forms\Components\Toggle::make('notification_settings.alerts_enabled')
+                            ->label('Алерты при смене статуса')
+                            ->helperText('Отправлять уведомление при изменении статуса теста')
+                            ->default(false),
+                        Forms\Components\Toggle::make('notification_settings.summary_enabled')
+                            ->label('Ежесуточное саммари')
+                            ->helperText('Отправлять сводку по всем тестам каждый день в 09:00')
+                            ->default(false),
+                    ])
+                    ->visibleOn('edit')
+                    ->collapsible()
+                    ->columnSpanFull(),
             ]);
     }
 
