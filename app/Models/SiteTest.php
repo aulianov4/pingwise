@@ -32,19 +32,19 @@ class SiteTest extends Model
     }
 
     /**
-     * Получить интервал проверки в минутах
+     * Получить интервал проверки в минутах.
+     *
+     * Интервал берётся из settings (заполняется при инициализации через TestService).
+     * Дефолтные значения по типам тестов больше не дублируются здесь —
+     * они определены в самих тестах через getDefaultInterval() (OCP).
      */
     public function getIntervalMinutes(): int
     {
         if (isset($this->settings['interval_minutes'])) {
             return (int) $this->settings['interval_minutes'];
         }
-        
-        // Интервал по умолчанию для типа теста
-        return match ($this->test_type) {
-            'availability' => 5,
-            'ssl', 'domain' => 24 * 60, // 24 часа
-            default => 60,
-        };
+
+        // Безопасный fallback — не зависит от конкретных типов тестов
+        return 60;
     }
 }

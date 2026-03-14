@@ -5,39 +5,28 @@ namespace App\Services;
 use App\Models\Site;
 use App\Models\SiteTest;
 use App\Models\TestResult;
-use App\Tests\AvailabilityTest;
-use App\Tests\DomainTest;
-use App\Tests\SslTest;
 use App\Tests\TestInterface;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Log;
 
+/**
+ * Сервис запуска тестов (SRP).
+ * Ответственность: оркестрация запуска тестов и сохранение результатов.
+ * Реестр тестов делегирован TestRegistry (SRP).
+ * Зависит от абстракции TestRegistry, а не от конкретных тестов (DIP).
+ */
 class TestService
 {
-    /**
-     * Зарегистрированные тесты
-     */
-    protected array $tests = [];
-
-    public function __construct()
-    {
-        $this->registerDefaultTests();
-    }
+    public function __construct(
+        protected readonly TestRegistry $registry,
+    ) {}
 
     /**
-     * Зарегистрировать тест
-     */
-    public function register(TestInterface $test): void
-    {
-        $this->tests[$test->getType()] = $test;
-    }
-
-    /**
-     * Получить тест по типу
+     * Получить тест по типу (делегирует реестру)
      */
     public function getTest(string $testType): ?TestInterface
     {
-        return $this->tests[$testType] ?? null;
+        return $this->registry->get($testType);
     }
 
     /**
@@ -45,57 +34,63 @@ class TestService
      */
     public function getAllTests(): array
     {
-        return $this->tests;
+        return $this->registry->all();
     }
 
     /**
-     * Запустить проверку для сайта
+     * Запустить проверку для сайта и сохранить результат в БД.
      */
     public function runTest(Site $site, string $testType): ?TestResult
     {
-        $test = $this->getTest($testType);
-        
+        $test = $this->registry->get($testType);
+
         if (!$test) {
             return null;
         }
-        
-        $result = $test->run($site);
-        
-        // Логируем результат теста
+
+        // Получаем DTO от теста
+        $resultData = $test->run($site);
+
+        // Сохраняем в БД (ответственность сервиса, не теста)
+        $result = TestResult::create([
+            'site_id' => $site->id,
+            'test_type' => $testType,
+            'status' => $resultData->status,
+            'value' => $resultData->value,
+            'message' => $resultData->message,
+            'checked_at' => now(),
+        ]);
+
         Log::info("Test result: site={$site->id} ({$site->name}), test={$testType}, status={$result->status}, message={$result->message}");
-        
+
         return $result;
     }
 
     /**
      * Проверить, нужно ли запускать тест для сайта
      */
-    public function shouldRunTest(Site $site, string $testType, ?\App\Models\SiteTest $siteTest = null): bool
+    public function shouldRunTest(Site $site, string $testType, ?SiteTest $siteTest = null): bool
     {
-        // Если siteTest не передан, получаем его
         if (!$siteTest) {
             $siteTest = $site->getTestConfig($testType);
         }
-        
-        // Проверяем, включен ли тест для сайта
+
         if (!$siteTest || !$siteTest->is_enabled) {
             return false;
         }
 
-        // Проверяем, прошло ли достаточно времени с последней проверки
         $lastResult = TestResult::where('site_id', $site->id)
             ->where('test_type', $testType)
             ->latest('checked_at')
             ->first();
 
         if (!$lastResult) {
-            return true; // Никогда не проверяли - нужно проверить
+            return true;
         }
 
         $intervalMinutes = $siteTest->getIntervalMinutes();
-        $lastCheckedAt = $lastResult->checked_at;
-        $nextCheckAt = $lastCheckedAt->copy()->addMinutes($intervalMinutes);
-        
+        $nextCheckAt = $lastResult->checked_at->copy()->addMinutes($intervalMinutes);
+
         return now()->greaterThanOrEqualTo($nextCheckAt);
     }
 
@@ -105,23 +100,22 @@ class TestService
     public function runScheduledTests(): Collection
     {
         $results = collect();
-        
+
         $sites = Site::where('is_active', true)->get();
-        
+
         foreach ($sites as $site) {
-            $siteTestsCount = \App\Models\SiteTest::where('site_id', $site->id)->count();
-            
-            // Если тесты не инициализированы, инициализируем их
+            $siteTestsCount = SiteTest::where('site_id', $site->id)->count();
+
             if ($siteTestsCount === 0) {
                 $this->initializeTestsForSite($site);
                 $site->refresh();
             }
-            
-            foreach ($this->tests as $testType => $test) {
-                $testConfig = \App\Models\SiteTest::where('site_id', $site->id)
+
+            foreach ($this->registry->all() as $testType => $test) {
+                $testConfig = SiteTest::where('site_id', $site->id)
                     ->where('test_type', $testType)
                     ->first();
-                
+
                 if ($testConfig && $this->shouldRunTest($site, $testType, $testConfig)) {
                     $result = $this->runTest($site, $testType);
                     if ($result) {
@@ -130,16 +124,16 @@ class TestService
                 }
             }
         }
-        
+
         return $results;
     }
 
     /**
-     * Инициализировать тесты для сайта (создать записи в site_tests)
+     * Инициализировать тесты для сайта
      */
     public function initializeTestsForSite(Site $site): void
     {
-        foreach ($this->tests as $testType => $test) {
+        foreach ($this->registry->all() as $testType => $test) {
             SiteTest::firstOrCreate(
                 [
                     'site_id' => $site->id,
@@ -153,15 +147,5 @@ class TestService
                 ]
             );
         }
-    }
-
-    /**
-     * Зарегистрировать тесты по умолчанию
-     */
-    protected function registerDefaultTests(): void
-    {
-        $this->register(new AvailabilityTest());
-        $this->register(new SslTest());
-        $this->register(new DomainTest());
     }
 }

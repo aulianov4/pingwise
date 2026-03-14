@@ -2,28 +2,18 @@
 
 namespace App\Tests;
 
+use App\DTO\TestResultData;
 use App\Models\Site;
-use App\Models\TestResult;
 
-interface TestInterface
+/**
+ * Полный интерфейс теста: метаданные + запуск (ISP).
+ * Расширяет TestMetadataInterface, добавляя возможность выполнения.
+ * Возвращает DTO вместо Eloquent-модели (DIP, LSP).
+ */
+interface TestInterface extends TestMetadataInterface
 {
     /**
      * Запустить тест для сайта
      */
-    public function run(Site $site): TestResult;
-
-    /**
-     * Получить тип теста
-     */
-    public function getType(): string;
-
-    /**
-     * Получить название теста
-     */
-    public function getName(): string;
-
-    /**
-     * Получить интервал проверки в минутах по умолчанию
-     */
-    public function getDefaultInterval(): int;
+    public function run(Site $site): TestResultData;
 }

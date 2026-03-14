@@ -6,8 +6,12 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
-use Illuminate\Support\Facades\Log;
 
+/**
+ * Модель сайта (SRP).
+ * Логика событий (created/updated/deleted) вынесена в SiteObserver.
+ * Модель не обращается к сервисному контейнеру напрямую (DIP).
+ */
 class Site extends Model
 {
     use HasFactory;
@@ -23,33 +27,6 @@ class Site extends Model
         'is_active' => 'boolean',
     ];
 
-    /**
-     * Boot the model.
-     */
-    protected static function boot(): void
-    {
-        parent::boot();
-
-        static::created(function (Site $site) {
-            Log::info("Site created: {$site->id} ({$site->name})");
-            
-            // Инициализировать тесты для нового сайта
-            try {
-                $testService = app(\App\Services\TestService::class);
-                $testService->initializeTestsForSite($site);
-            } catch (\Exception $e) {
-                Log::error("Failed to initialize tests for site {$site->id}: " . $e->getMessage());
-            }
-        });
-
-        static::updated(function (Site $site) {
-            Log::info("Site updated: {$site->id} ({$site->name})");
-        });
-
-        static::deleted(function (Site $site) {
-            Log::info("Site deleted: {$site->id} ({$site->name})");
-        });
-    }
 
     /**
      * Получить пользователя, которому принадлежит сайт
