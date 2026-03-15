@@ -73,30 +73,4 @@ php artisan pingwise:init-tests
 ### Системная утилита whois (рекомендуется)
 
 Для более надежной работы теста проверки регистрации домена рекомендуется установить системную утилиту `whois`. Однако это **не обязательно** — система автоматически использует альтернативные методы получения данных WHOIS (TCP-соединение к WHOIS серверам и HTTP API).
-
-**Установка whois:**
-
-- **Ubuntu/Debian:**
-  ```bash
-  sudo apt-get update
-  sudo apt-get install whois
-  ```
-
-- **DDEV:**
-  Добавьте в `.ddev/config.yaml`:
-  ```yaml
-  webimage_extra_packages: [whois]
-  ```
-  Затем выполните: `ddev restart`
-
-- **macOS:**
-  ```bash
-  brew install whois
-  ```
-
-- **CentOS/RHEL:**
-  ```bash
-  sudo yum install whois
-  ```
-
 Без установленной утилиты `whois` система будет использовать TCP-соединения к WHOIS серверам, что также работает, но может быть менее надежно для некоторых доменов.

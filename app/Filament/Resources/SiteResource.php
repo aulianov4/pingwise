@@ -65,13 +65,10 @@ class SiteResource extends Resource
                                     ->disabled()
                                     ->dehydrated()
                                     ->formatStateUsing(function ($state) {
-                                        // Только для отображения - не изменяем сохраненное значение
                                         $test = app(TestService::class)->getTest($state);
                                         return $test ? $test->getName() : $state;
                                     })
                                     ->afterStateHydrated(function ($component, $state) {
-                                        // Убеждаемся, что при сохранении используется исходное значение
-                                        // Сохраняем исходное значение в скрытом поле
                                         if ($state) {
                                             $component->extraAttributes(['data-original-value' => $state]);
                                         }
@@ -106,7 +103,7 @@ class SiteResource extends Resource
                             ->options(fn () => TelegramChat::pluck('title', 'id'))
                             ->placeholder('Не выбрана')
                             ->searchable()
-                            ->helperText('Добавьте бота в группу и выполните команду: php artisan pingwise:telegram:sync'),
+                            ->helperText('Добавьте бота @pingwise_bot в группу и в течение 5 минут он появится в этом списке'),
                         Forms\Components\Toggle::make('notification_settings.alerts_enabled')
                             ->label('Алерты при смене статуса')
                             ->helperText('Отправлять уведомление при изменении статуса теста')
