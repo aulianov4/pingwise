@@ -4,6 +4,7 @@ namespace App\Services\Telegram;
 
 use App\Models\Site;
 use App\Models\TestResult;
+use App\Services\TestRegistry;
 use Illuminate\Support\Collection;
 
 /**
@@ -12,6 +13,9 @@ use Illuminate\Support\Collection;
  */
 class TelegramMessageFormatter
 {
+    public function __construct(
+        protected readonly TestRegistry $registry,
+    ) {}
     /**
      * Форматировать алерт при смене статуса теста
      */
@@ -122,12 +126,7 @@ class TelegramMessageFormatter
 
     protected function getTestName(string $testType): string
     {
-        return match ($testType) {
-            'availability' => 'Доступность',
-            'ssl' => 'SSL сертификат',
-            'domain' => 'Регистрация домена',
-            default => $testType,
-        };
+        return $this->registry->get($testType)?->getName() ?? $testType;
     }
 
     protected function getStatusLabel(string $status): string

@@ -72,13 +72,12 @@ class Site extends Model
     }
 
     /**
-     * Получить настройку конкретного теста
+     * Получить настройку конкретного теста.
+     * Использует relationship siteTests() — работает с eager-loaded данными.
      */
     public function getTestConfig(string $testType): ?SiteTest
     {
-        return SiteTest::where('site_id', $this->id)
-            ->where('test_type', $testType)
-            ->first();
+        return $this->siteTests->firstWhere('test_type', $testType);
     }
 
     /**

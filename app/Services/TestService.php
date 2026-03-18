@@ -2,10 +2,12 @@
 
 namespace App\Services;
 
+use App\Events\TestStatusChanged;
 use App\Models\Site;
 use App\Models\SiteTest;
 use App\Models\TestResult;
 use App\Tests\TestInterface;
+use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Log;
 
@@ -13,12 +15,13 @@ use Illuminate\Support\Facades\Log;
  * Сервис запуска тестов (SRP).
  * Ответственность: оркестрация запуска тестов и сохранение результатов.
  * Реестр тестов делегирован TestRegistry (SRP).
- * Зависит от абстракции TestRegistry, а не от конкретных тестов (DIP).
+ * Зависит от абстракций TestRegistry и Dispatcher (DIP).
  */
 class TestService
 {
     public function __construct(
         protected readonly TestRegistry $registry,
+        protected readonly Dispatcher $events,
     ) {}
 
     /**
@@ -49,10 +52,7 @@ class TestService
         }
 
         // Получаем предыдущий результат для сравнения статуса
-        $previousResult = TestResult::where('site_id', $site->id)
-            ->where('test_type', $testType)
-            ->latest('checked_at')
-            ->first();
+        $previousResult = TestResult::latestForSiteTest($site->id, $testType)->first();
 
         // Получаем DTO от теста
         $resultData = $test->run($site);
@@ -71,7 +71,7 @@ class TestService
 
         // Диспатч события при смене статуса
         if (!$previousResult || $previousResult->status !== $result->status) {
-            TestStatusChanged::dispatch($site, $result, $previousResult);
+            $this->events->dispatch(new TestStatusChanged($site, $result, $previousResult));
         }
 
         return $result;
@@ -90,10 +90,7 @@ class TestService
             return false;
         }
 
-        $lastResult = TestResult::where('site_id', $site->id)
-            ->where('test_type', $testType)
-            ->latest('checked_at')
-            ->first();
+        $lastResult = TestResult::latestForSiteTest($site->id, $testType)->first();
 
         if (!$lastResult) {
             return true;
@@ -112,20 +109,17 @@ class TestService
     {
         $results = collect();
 
-        $sites = Site::where('is_active', true)->get();
+        $sites = Site::where('is_active', true)->with('siteTests')->get();
 
         foreach ($sites as $site) {
-            $siteTestsCount = SiteTest::where('site_id', $site->id)->count();
-
-            if ($siteTestsCount === 0) {
+            if ($site->siteTests->isEmpty()) {
                 $this->initializeTestsForSite($site);
                 $site->refresh();
+                $site->load('siteTests');
             }
 
             foreach ($this->registry->all() as $testType => $test) {
-                $testConfig = SiteTest::where('site_id', $site->id)
-                    ->where('test_type', $testType)
-                    ->first();
+                $testConfig = $site->siteTests->firstWhere('test_type', $testType);
 
                 if ($testConfig && $this->shouldRunTest($site, $testType, $testConfig)) {
                     $result = $this->runTest($site, $testType);

@@ -4,7 +4,6 @@ namespace App\Tests;
 
 use App\Models\Site;
 use Illuminate\Support\Facades\Http;
-use Illuminate\Support\Facades\Log;
 
 class AvailabilityTest extends BaseTest
 {
@@ -26,7 +25,7 @@ class AvailabilityTest extends BaseTest
     protected function execute(Site $site): array
     {
         $startTime = microtime(true);
-        
+
         try {
             $response = Http::timeout(10)
                 ->withOptions([
@@ -34,12 +33,12 @@ class AvailabilityTest extends BaseTest
                     'verify' => false, // Для тестирования, можно включить проверку SSL
                 ])
                 ->get($site->url);
-            
+
             $responseTime = round((microtime(true) - $startTime) * 1000); // в миллисекундах
-            
+
             $statusCode = $response->status();
             $isUp = $statusCode >= 200 && $statusCode < 400;
-            
+
             return [
                 'status' => $this->determineStatus($isUp),
                 'value' => [
@@ -47,35 +46,23 @@ class AvailabilityTest extends BaseTest
                     'response_time_ms' => $responseTime,
                     'is_up' => $isUp,
                 ],
-                'message' => $isUp 
+                'message' => $isUp
                     ? "Сайт доступен. Код ответа: {$statusCode}, время отклика: {$responseTime}мс"
                     : "Сайт недоступен. Код ответа: {$statusCode}",
             ];
-        } catch (\Illuminate\Http\Client\ConnectionException $e) {
-            $responseTime = round((microtime(true) - $startTime) * 1000);
-            
-            return [
-                'status' => 'failed',
-                'value' => [
-                    'status_code' => null,
-                    'response_time_ms' => $responseTime,
-                    'is_up' => false,
-                    'error' => 'connection_error',
-                ],
-                'message' => 'Ошибка подключения: ' . $e->getMessage(),
-            ];
         } catch (\Exception $e) {
             $responseTime = round((microtime(true) - $startTime) * 1000);
-            
+            $isConnectionError = $e instanceof \Illuminate\Http\Client\ConnectionException;
+
             return [
                 'status' => 'failed',
                 'value' => [
                     'status_code' => null,
                     'response_time_ms' => $responseTime,
                     'is_up' => false,
-                    'error' => 'unknown_error',
+                    'error' => $isConnectionError ? 'connection_error' : 'unknown_error',
                 ],
-                'message' => 'Ошибка при проверке доступности: ' . $e->getMessage(),
+                'message' => ($isConnectionError ? 'Ошибка подключения: ' : 'Ошибка при проверке доступности: ') . $e->getMessage(),
             ];
         }
     }

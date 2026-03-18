@@ -49,6 +49,16 @@ class TestResult extends Model
     }
 
     /**
+     * Scope для получения последнего результата по сайту и типу теста
+     */
+    public function scopeLatestForSiteTest($query, int $siteId, string $testType)
+    {
+        return $query->where('site_id', $siteId)
+            ->where('test_type', $testType)
+            ->latest('checked_at');
+    }
+
+    /**
      * Scope для фильтрации за период
      */
     public function scopeForPeriod($query, string $period)

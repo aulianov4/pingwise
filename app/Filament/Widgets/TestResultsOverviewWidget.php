@@ -32,17 +32,13 @@ class TestResultsOverviewWidget extends Widget
 
         foreach ($allTests as $testType => $test) {
             $siteTest = $site->getTestConfig($testType);
-            $isEnabled = $siteTest && $siteTest->is_enabled;
 
-            $lastResult = TestResult::where('site_id', $site->id)
-                ->where('test_type', $testType)
-                ->latest('checked_at')
-                ->first();
+            $lastResult = TestResult::latestForSiteTest($site->id, $testType)->first();
 
             $results[] = [
                 'type' => $testType,
                 'name' => $test->getName(),
-                'is_enabled' => $isEnabled,
+                'is_enabled' => $siteTest?->is_enabled ?? false,
                 'last_result' => $lastResult,
                 'status' => $lastResult?->status,
                 'message' => $lastResult?->message,

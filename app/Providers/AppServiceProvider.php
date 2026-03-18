@@ -48,7 +48,10 @@ class AppServiceProvider extends ServiceProvider
 
         // Сервис запуска тестов
         $this->app->singleton(TestService::class, function ($app) {
-            return new TestService($app->make(TestRegistry::class));
+            return new TestService(
+                $app->make(TestRegistry::class),
+                $app->make(\Illuminate\Contracts\Events\Dispatcher::class),
+            );
         });
 
         // Telegram — привязка интерфейса к реализации (DIP)
