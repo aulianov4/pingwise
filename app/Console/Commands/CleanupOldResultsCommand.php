@@ -27,13 +27,13 @@ class CleanupOldResultsCommand extends Command
     public function handle(): int
     {
         $cutoffDate = now()->subYear();
-        
+
         $this->info("Удаление результатов тестов старше {$cutoffDate->format('Y-m-d H:i:s')}...");
-        
+
         $deleted = TestResult::where('checked_at', '<', $cutoffDate)->delete();
-        
+
         $this->info("Удалено записей: {$deleted}");
-        
+
         return Command::SUCCESS;
     }
 }

@@ -24,7 +24,7 @@ class SiteObserver
         try {
             $this->testService->initializeTestsForSite($site);
         } catch (\Exception $e) {
-            Log::error("Failed to initialize tests for site {$site->id}: " . $e->getMessage());
+            Log::error("Failed to initialize tests for site {$site->id}: ".$e->getMessage());
         }
     }
 
@@ -38,4 +38,3 @@ class SiteObserver
         Log::info("Site deleted: {$site->id} ({$site->name})");
     }
 }
-

@@ -28,4 +28,3 @@ interface TelegramBotInterface
      */
     public function isConfigured(): bool;
 }
-

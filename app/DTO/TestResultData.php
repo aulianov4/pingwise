@@ -13,4 +13,3 @@ readonly class TestResultData
         public ?string $message = null,
     ) {}
 }
-

@@ -50,5 +50,3 @@ class TestResultsOverviewWidget extends Widget
         return ['results' => $results];
     }
 }
-
-

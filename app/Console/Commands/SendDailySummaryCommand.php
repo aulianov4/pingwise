@@ -1,19 +1,25 @@
 <?php
+
 namespace App\Console\Commands;
+
 use App\Models\Site;
 use App\Models\TestResult;
 use App\Services\Telegram\TelegramBotInterface;
 use App\Services\Telegram\TelegramMessageFormatter;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Log;
+
 class SendDailySummaryCommand extends Command
 {
     protected $signature = 'pingwise:telegram:summary';
+
     protected $description = 'Отправить ежесуточное саммари в Telegram';
+
     public function handle(TelegramBotInterface $bot, TelegramMessageFormatter $formatter): int
     {
         if (! $bot->isConfigured()) {
             $this->warn('Telegram bot token не настроен.');
+
             return self::FAILURE;
         }
         $sites = Site::where('is_active', true)
@@ -23,6 +29,7 @@ class SendDailySummaryCommand extends Command
             ->filter(fn (Site $site) => $site->isTelegramSummaryEnabled());
         if ($sites->isEmpty()) {
             $this->info('Нет сайтов с включённым ежесуточным саммари.');
+
             return self::SUCCESS;
         }
         $sentCount = 0;
@@ -40,11 +47,12 @@ class SendDailySummaryCommand extends Command
                     $sentCount++;
                 }
             } catch (\Exception $e) {
-                Log::error("Failed to send daily summary for site {$site->id}: " . $e->getMessage());
+                Log::error("Failed to send daily summary for site {$site->id}: ".$e->getMessage());
                 $this->error("Ошибка для {$site->name}: {$e->getMessage()}");
             }
         }
         $this->info("Саммари отправлено для {$sentCount} сайтов.");
+
         return self::SUCCESS;
     }
 }

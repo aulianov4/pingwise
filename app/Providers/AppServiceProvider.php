@@ -13,7 +13,6 @@ use App\Services\TestRegistry;
 use App\Services\TestService;
 use App\Services\Whois\WhoisClient;
 use App\Services\Whois\WhoisClientInterface;
-use App\Services\Whois\WhoisParser;
 use App\Tests\AvailabilityTest;
 use App\Tests\DomainTest;
 use App\Tests\SslTest;

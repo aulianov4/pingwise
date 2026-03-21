@@ -24,4 +24,3 @@ interface TestMetadataInterface
      */
     public function getDefaultInterval(): int;
 }
-

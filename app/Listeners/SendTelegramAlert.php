@@ -39,8 +39,7 @@ class SendTelegramAlert
 
             $this->bot->sendMessage($chat->chat_id, $message);
         } catch (\Exception $e) {
-            Log::error("Failed to send Telegram alert for site {$site->id}: " . $e->getMessage());
+            Log::error("Failed to send Telegram alert for site {$site->id}: ".$e->getMessage());
         }
     }
 }
-

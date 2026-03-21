@@ -25,4 +25,3 @@ class TelegramChat extends Model
         return $this->hasMany(Site::class, 'telegram_chat_id');
     }
 }
-

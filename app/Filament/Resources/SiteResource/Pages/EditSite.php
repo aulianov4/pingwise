@@ -25,11 +25,11 @@ class EditSite extends EditRecord
             $testService = app(TestService::class);
             $tests = $testService->getAllTests();
             $nameToKey = [];
-            
+
             foreach ($tests as $key => $test) {
                 $nameToKey[$test->getName()] = $key;
             }
-            
+
             foreach ($data['siteTests'] as &$siteTest) {
                 if (isset($siteTest['test_type'])) {
                     $testType = $siteTest['test_type'];
@@ -40,7 +40,7 @@ class EditSite extends EditRecord
                 }
             }
         }
-        
+
         return $data;
     }
 }

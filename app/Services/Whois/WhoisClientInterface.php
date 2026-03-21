@@ -13,4 +13,3 @@ interface WhoisClientInterface
      */
     public function query(string $domain): ?string;
 }
-

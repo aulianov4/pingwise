@@ -17,7 +17,7 @@ class TestRegistry
     protected array $tests = [];
 
     /**
-     * @param iterable<TestInterface> $tests
+     * @param  iterable<TestInterface>  $tests
      */
     public function __construct(iterable $tests = [])
     {
@@ -52,4 +52,3 @@ class TestRegistry
         return $this->tests;
     }
 }
-

@@ -27,12 +27,12 @@ abstract class BaseTest implements TestInterface
                 message: $result['message'] ?? null,
             );
         } catch (\Exception $e) {
-            Log::error("Test {$this->getType()} failed for site {$site->id}: " . $e->getMessage());
+            Log::error("Test {$this->getType()} failed for site {$site->id}: ".$e->getMessage());
 
             return new TestResultData(
                 status: 'failed',
                 value: null,
-                message: 'Ошибка выполнения теста: ' . $e->getMessage(),
+                message: 'Ошибка выполнения теста: '.$e->getMessage(),
             );
         }
     }
@@ -49,7 +49,7 @@ abstract class BaseTest implements TestInterface
      */
     protected function determineStatus(bool $isSuccess, ?bool $isWarning = null): string
     {
-        if (!$isSuccess) {
+        if (! $isSuccess) {
             return 'failed';
         }
 

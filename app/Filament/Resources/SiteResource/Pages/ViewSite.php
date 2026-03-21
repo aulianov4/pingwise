@@ -39,4 +39,3 @@ class ViewSite extends ViewRecord
         ];
     }
 }
-

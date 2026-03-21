@@ -16,6 +16,7 @@ class TelegramMessageFormatter
     public function __construct(
         protected readonly TestRegistry $registry,
     ) {}
+
     /**
      * Форматировать алерт при смене статуса теста
      */
@@ -34,19 +35,19 @@ class TelegramMessageFormatter
 
         $lines = [
             "{$emoji} <b>{$site->name}</b>",
-            "",
+            '',
             "Тест: <b>{$testName}</b>",
             "Статус: {$oldStatus} → <b>{$newStatus}</b>",
         ];
 
         if ($current->message) {
-            $lines[] = "";
+            $lines[] = '';
             $lines[] = htmlspecialchars($current->message, ENT_QUOTES);
         }
 
-        $lines[] = "";
-        $lines[] = "🔗 " . htmlspecialchars($site->url, ENT_QUOTES);
-        $lines[] = "🕐 " . $current->checked_at->format('d.m.Y H:i:s');
+        $lines[] = '';
+        $lines[] = '🔗 '.htmlspecialchars($site->url, ENT_QUOTES);
+        $lines[] = '🕐 '.$current->checked_at->format('d.m.Y H:i:s');
 
         return implode("\n", $lines);
     }
@@ -71,7 +72,7 @@ class TelegramMessageFormatter
 
         $lines = [
             "📊 <b>Сводка за сутки: {$site->name}</b>",
-            "",
+            '',
             "{$emoji} Аптайм: <b>{$uptimePercent}%</b>",
             "Всего проверок: {$total}",
             "✅ Успешных: {$success}",
@@ -87,8 +88,8 @@ class TelegramMessageFormatter
         // Группируем по типам тестов
         $byType = $results->groupBy('test_type');
         if ($byType->count() > 1) {
-            $lines[] = "";
-            $lines[] = "<b>По тестам:</b>";
+            $lines[] = '';
+            $lines[] = '<b>По тестам:</b>';
 
             foreach ($byType as $testType => $typeResults) {
                 $typeTotal = $typeResults->count();
@@ -104,8 +105,8 @@ class TelegramMessageFormatter
         // Последний статус каждого теста
         $lastByType = $results->groupBy('test_type')->map(fn ($items) => $items->sortByDesc('checked_at')->first());
         if ($lastByType->isNotEmpty()) {
-            $lines[] = "";
-            $lines[] = "<b>Текущий статус:</b>";
+            $lines[] = '';
+            $lines[] = '<b>Текущий статус:</b>';
             foreach ($lastByType as $testType => $lastResult) {
                 $testName = $this->getTestName($testType);
                 $statusEmoji = match ($lastResult->status) {
@@ -118,8 +119,8 @@ class TelegramMessageFormatter
             }
         }
 
-        $lines[] = "";
-        $lines[] = "🔗 " . htmlspecialchars($site->url, ENT_QUOTES);
+        $lines[] = '';
+        $lines[] = '🔗 '.htmlspecialchars($site->url, ENT_QUOTES);
 
         return implode("\n", $lines);
     }
@@ -139,4 +140,3 @@ class TelegramMessageFormatter
         };
     }
 }
-

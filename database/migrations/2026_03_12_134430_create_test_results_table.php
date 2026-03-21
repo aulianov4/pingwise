@@ -20,7 +20,7 @@ return new class extends Migration
             $table->text('message')->nullable(); // Детальное описание результата
             $table->timestamp('checked_at');
             $table->timestamps();
-            
+
             $table->index(['site_id', 'test_type', 'checked_at']);
             $table->index(['site_id', 'checked_at']);
             $table->index('checked_at'); // Для очистки старых данных

@@ -34,6 +34,7 @@ class TelegramBotService implements TelegramBotInterface
     {
         if (! $this->isConfigured()) {
             Log::warning('Telegram bot token is not configured');
+
             return collect();
         }
 
@@ -47,6 +48,7 @@ class TelegramBotService implements TelegramBotInterface
                     'status' => $response->status(),
                     'body' => $response->body(),
                 ]);
+
                 return collect();
             }
 
@@ -68,7 +70,8 @@ class TelegramBotService implements TelegramBotInterface
 
             return $telegramChats;
         } catch (\Exception $e) {
-            Log::error('Failed to sync Telegram chats: ' . $e->getMessage());
+            Log::error('Failed to sync Telegram chats: '.$e->getMessage());
+
             return collect();
         }
     }
@@ -80,6 +83,7 @@ class TelegramBotService implements TelegramBotInterface
     {
         if (! $this->isConfigured()) {
             Log::warning('Telegram bot token is not configured, message not sent');
+
             return false;
         }
 
@@ -97,12 +101,14 @@ class TelegramBotService implements TelegramBotInterface
                     'status' => $response->status(),
                     'body' => $response->body(),
                 ]);
+
                 return false;
             }
 
             return true;
         } catch (\Exception $e) {
-            Log::error("Failed to send Telegram message to chat {$chatId}: " . $e->getMessage());
+            Log::error("Failed to send Telegram message to chat {$chatId}: ".$e->getMessage());
+
             return false;
         }
     }
@@ -135,4 +141,3 @@ class TelegramBotService implements TelegramBotInterface
         return $chats;
     }
 }
-
