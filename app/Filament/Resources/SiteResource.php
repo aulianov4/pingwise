@@ -66,6 +66,7 @@ class SiteResource extends Resource
                                     ->dehydrated()
                                     ->formatStateUsing(function ($state) {
                                         $test = app(TestService::class)->getTest($state);
+
                                         return $test ? $test->getName() : $state;
                                     })
                                     ->afterStateHydrated(function ($component, $state) {
@@ -80,13 +81,11 @@ class SiteResource extends Resource
                                     ->label('Интервал (минуты)')
                                     ->numeric()
                                     ->required()
-                                    ->default(fn ($record, $get) =>
-                                        app(TestService::class)->getTest($get('test_type'))?->getDefaultInterval() ?? 60
+                                    ->default(fn ($record, $get) => app(TestService::class)->getTest($get('test_type'))?->getDefaultInterval() ?? 60
                                     ),
                             ])
                             ->defaultItems(0)
-                            ->itemLabel(fn (array $state): ?string =>
-                                app(TestService::class)->getTest($state['test_type'] ?? '')?->getName()
+                            ->itemLabel(fn (array $state): ?string => app(TestService::class)->getTest($state['test_type'] ?? '')?->getName()
                             )
                             ->collapsible()
                             ->addable(false)
@@ -139,8 +138,7 @@ class SiteResource extends Resource
                     ->label('Последний статус')
                     ->badge()
                     ->state(function (Site $record): ?string {
-                        $lastResult = $record->testResults()->latest('checked_at')->first();
-                        return $lastResult?->status;
+                        return $record->testResults->first()?->status;
                     })
                     ->color(fn (?string $state): string => match ($state) {
                         'success' => 'success',
@@ -167,6 +165,22 @@ class SiteResource extends Resource
                     ->label('Запустить проверки')
                     ->icon('heroicon-o-play')
                     ->action(function (Site $record) {
+                        $rateLimitKey = 'run_tests_site_'.$record->id;
+
+                        if (\Illuminate\Support\Facades\RateLimiter::tooManyAttempts($rateLimitKey, 1)) {
+                            $seconds = \Illuminate\Support\Facades\RateLimiter::availableIn($rateLimitKey);
+
+                            \Filament\Notifications\Notification::make()
+                                ->title('Слишком частые запросы')
+                                ->body("Повторный запуск будет доступен через {$seconds} сек.")
+                                ->warning()
+                                ->send();
+
+                            return;
+                        }
+
+                        \Illuminate\Support\Facades\RateLimiter::hit($rateLimitKey, 60);
+
                         $testService = app(TestService::class);
                         $runCount = 0;
                         $errors = [];
@@ -186,8 +200,8 @@ class SiteResource extends Resource
                                             $runCount++;
                                         }
                                     } catch (\Exception $e) {
-                                        $errors[] = "Ошибка при выполнении теста {$testType}: " . $e->getMessage();
-                                        \Illuminate\Support\Facades\Log::error("Error running test {$testType} for site {$record->id}: " . $e->getMessage());
+                                        $errors[] = "Ошибка при выполнении теста {$testType}: ".$e->getMessage();
+                                        \Illuminate\Support\Facades\Log::error("Error running test {$testType} for site {$record->id}: ".$e->getMessage());
                                     }
                                 }
                             }
@@ -195,7 +209,7 @@ class SiteResource extends Resource
                             if (count($errors) > 0) {
                                 \Filament\Notifications\Notification::make()
                                     ->title('Проверки выполнены с ошибками')
-                                    ->body('Запущено: ' . $runCount . '. Ошибок: ' . count($errors))
+                                    ->body('Запущено: '.$runCount.'. Ошибок: '.count($errors))
                                     ->danger()
                                     ->send();
                             } else {
@@ -211,7 +225,7 @@ class SiteResource extends Resource
                                 ->body($e->getMessage())
                                 ->danger()
                                 ->send();
-                            \Illuminate\Support\Facades\Log::error("Error in run_tests action for site {$record->id}: " . $e->getMessage());
+                            \Illuminate\Support\Facades\Log::error("Error in run_tests action for site {$record->id}: ".$e->getMessage());
                         }
                     })
                     ->requiresConfirmation(),
@@ -251,5 +265,4 @@ class SiteResource extends Resource
                 $query->latest('checked_at')->limit(1);
             }]);
     }
-
 }

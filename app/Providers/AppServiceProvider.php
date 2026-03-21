@@ -6,6 +6,8 @@ use App\Events\TestStatusChanged;
 use App\Listeners\SendTelegramAlert;
 use App\Models\Site;
 use App\Observers\SiteObserver;
+use App\Services\Ssl\SslChecker;
+use App\Services\Ssl\SslCheckerInterface;
 use App\Services\Telegram\TelegramBotInterface;
 use App\Services\Telegram\TelegramBotService;
 use App\Services\Telegram\TelegramMessageFormatter;
@@ -13,7 +15,6 @@ use App\Services\TestRegistry;
 use App\Services\TestService;
 use App\Services\Whois\WhoisClient;
 use App\Services\Whois\WhoisClientInterface;
-use App\Services\Whois\WhoisParser;
 use App\Tests\AvailabilityTest;
 use App\Tests\DomainTest;
 use App\Tests\SslTest;
@@ -32,6 +33,9 @@ class AppServiceProvider extends ServiceProvider
     {
         // WHOIS — привязка интерфейса к реализации (DIP)
         $this->app->bind(WhoisClientInterface::class, WhoisClient::class);
+
+        // SSL — привязка интерфейса к реализации (DIP)
+        $this->app->bind(SslCheckerInterface::class, SslChecker::class);
 
         // Регистрация отдельных тестов (OCP — для добавления нового теста
         // достаточно добавить строку сюда и создать класс, не меняя существующий код)

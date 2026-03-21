@@ -35,7 +35,7 @@ class DomainTest extends BaseTest
     protected function execute(Site $site): array
     {
         $url = parse_url($site->url, PHP_URL_HOST);
-        if (!$url) {
+        if (! $url) {
             return [
                 'status' => 'failed',
                 'message' => 'Не удалось извлечь домен из URL',
@@ -48,7 +48,7 @@ class DomainTest extends BaseTest
         try {
             $whoisData = $this->whoisClient->query($domain);
 
-            if (!$whoisData) {
+            if (! $whoisData) {
                 return [
                     'status' => 'failed',
                     'value' => [
@@ -63,7 +63,7 @@ class DomainTest extends BaseTest
             $expiresAt = $this->whoisParser->extractExpirationDate($whoisData);
             $registrar = $this->whoisParser->extractRegistrar($whoisData);
 
-            if (!$registeredAt) {
+            if (! $registeredAt) {
                 return [
                     'status' => 'failed',
                     'value' => [
@@ -108,7 +108,7 @@ class DomainTest extends BaseTest
                     'is_valid' => false,
                     'error' => 'exception',
                 ],
-                'message' => 'Ошибка при проверке домена: ' . $e->getMessage(),
+                'message' => 'Ошибка при проверке домена: '.$e->getMessage(),
             ];
         }
     }

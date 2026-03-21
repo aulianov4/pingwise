@@ -18,7 +18,7 @@ return new class extends Migration
             $table->boolean('is_enabled')->default(true);
             $table->json('settings')->nullable(); // Настройки интервала и другие параметры
             $table->timestamps();
-            
+
             $table->unique(['site_id', 'test_type']);
             $table->index(['site_id', 'is_enabled']);
         });

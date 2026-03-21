@@ -33,39 +33,39 @@ class TestResultResource extends Resource
     {
         return $schema
             ->schema([
-                Forms\Components\Select::make('site_id')
+                Forms\Components\TextInput::make('site.name')
                     ->label('Сайт')
-                    ->relationship('site', 'name')
-                    ->required()
-                    ->searchable()
-                    ->preload(),
-                Forms\Components\Select::make('test_type')
+                    ->disabled(),
+                Forms\Components\TextInput::make('test_type')
                     ->label('Тип теста')
-                    ->options([
+                    ->formatStateUsing(fn (string $state): string => match ($state) {
                         'availability' => 'Доступность сайта',
                         'ssl' => 'SSL сертификат',
                         'domain' => 'Регистрация домена',
-                    ])
-                    ->required(),
-                Forms\Components\Select::make('status')
+                        default => $state,
+                    })
+                    ->disabled(),
+                Forms\Components\TextInput::make('status')
                     ->label('Статус')
-                    ->options([
+                    ->formatStateUsing(fn (string $state): string => match ($state) {
                         'success' => 'Успешно',
                         'failed' => 'Ошибка',
                         'warning' => 'Предупреждение',
-                    ])
-                    ->required(),
+                        default => $state,
+                    })
+                    ->disabled(),
                 Forms\Components\Textarea::make('message')
                     ->label('Сообщение')
-                    ->rows(3),
+                    ->rows(3)
+                    ->disabled(),
                 Forms\Components\KeyValue::make('value')
                     ->label('Детальные данные')
                     ->keyLabel('Ключ')
-                    ->valueLabel('Значение'),
+                    ->valueLabel('Значение')
+                    ->disabled(),
                 Forms\Components\DateTimePicker::make('checked_at')
                     ->label('Время проверки')
-                    ->required()
-                    ->default(now()),
+                    ->disabled(),
             ]);
     }
 

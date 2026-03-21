@@ -47,7 +47,7 @@ class TestService
     {
         $test = $this->registry->get($testType);
 
-        if (!$test) {
+        if (! $test) {
             return null;
         }
 
@@ -70,7 +70,7 @@ class TestService
         Log::info("Test result: site={$site->id} ({$site->name}), test={$testType}, status={$result->status}, message={$result->message}");
 
         // Диспатч события при смене статуса
-        if (!$previousResult || $previousResult->status !== $result->status) {
+        if (! $previousResult || $previousResult->status !== $result->status) {
             $this->events->dispatch(new TestStatusChanged($site, $result, $previousResult));
         }
 
@@ -82,17 +82,17 @@ class TestService
      */
     public function shouldRunTest(Site $site, string $testType, ?SiteTest $siteTest = null): bool
     {
-        if (!$siteTest) {
+        if (! $siteTest) {
             $siteTest = $site->getTestConfig($testType);
         }
 
-        if (!$siteTest || !$siteTest->is_enabled) {
+        if (! $siteTest || ! $siteTest->is_enabled) {
             return false;
         }
 
         $lastResult = TestResult::latestForSiteTest($site->id, $testType)->first();
 
-        if (!$lastResult) {
+        if (! $lastResult) {
             return true;
         }
 

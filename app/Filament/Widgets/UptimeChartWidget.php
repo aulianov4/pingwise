@@ -107,7 +107,7 @@ class UptimeChartWidget extends ChartWidget
         ];
     }
 
-    protected function getOptions(): array|null
+    protected function getOptions(): ?array
     {
         return [
             'scales' => [
@@ -151,7 +151,3 @@ class UptimeChartWidget extends ChartWidget
         return $periods;
     }
 }
-
-
-
-

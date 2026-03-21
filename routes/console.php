@@ -28,4 +28,3 @@ Schedule::command('pingwise:telegram:sync')
 Schedule::command('pingwise:telegram:summary')
     ->dailyAt('09:00')
     ->withoutOverlapping();
-

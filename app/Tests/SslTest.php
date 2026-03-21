@@ -3,9 +3,14 @@
 namespace App\Tests;
 
 use App\Models\Site;
+use App\Services\Ssl\SslCheckerInterface;
 
 class SslTest extends BaseTest
 {
+    public function __construct(
+        protected readonly SslCheckerInterface $sslChecker,
+    ) {}
+
     public function getType(): string
     {
         return 'ssl';
@@ -23,8 +28,8 @@ class SslTest extends BaseTest
 
     protected function execute(Site $site): array
     {
-        $url = parse_url($site->url, PHP_URL_HOST);
-        if (!$url) {
+        $host = parse_url($site->url, PHP_URL_HOST);
+        if (! $host) {
             return [
                 'status' => 'failed',
                 'message' => 'Не удалось извлечь домен из URL',
@@ -32,92 +37,44 @@ class SslTest extends BaseTest
         }
 
         $port = parse_url($site->url, PHP_URL_PORT) ?: 443;
-        
+
         try {
-            $context = stream_context_create([
-                'ssl' => [
-                    'capture_peer_cert' => true,
-                    'verify_peer' => false,
-                    'verify_peer_name' => false,
-                ],
-            ]);
-            
-            $socket = @stream_socket_client(
-                "ssl://{$url}:{$port}",
-                $errno,
-                $errstr,
-                10,
-                STREAM_CLIENT_CONNECT,
-                $context
-            );
-            
-            if (!$socket) {
+            $certInfo = $this->sslChecker->getCertificateInfo($host, $port);
+
+            if (! $certInfo) {
                 return [
                     'status' => 'failed',
                     'value' => [
                         'is_valid' => false,
                         'error' => 'connection_failed',
                     ],
-                    'message' => "Не удалось подключиться к SSL: {$errstr} ({$errno})",
+                    'message' => 'Не удалось получить SSL сертификат',
                 ];
             }
-            
-            $params = stream_context_get_params($socket);
-            $cert = $params['options']['ssl']['peer_certificate'];
-            
-            if (!$cert) {
-                return [
-                    'status' => 'failed',
-                    'value' => [
-                        'is_valid' => false,
-                        'error' => 'no_certificate',
-                    ],
-                    'message' => 'SSL сертификат не найден',
-                ];
-            }
-            
-            $certData = openssl_x509_parse($cert);
-            fclose($socket);
-            
-            if (!$certData) {
-                return [
-                    'status' => 'failed',
-                    'value' => [
-                        'is_valid' => false,
-                        'error' => 'parse_error',
-                    ],
-                    'message' => 'Ошибка парсинга SSL сертификата',
-                ];
-            }
-            
-            // Проверка на самоподписанный сертификат
-            $isSelfSigned = isset($certData['issuer']['CN']) && 
-                           isset($certData['subject']['CN']) &&
-                           $certData['issuer']['CN'] === $certData['subject']['CN'];
-            
-            $validTo = $certData['validTo_time_t'];
+
+            $isSelfSigned = $certInfo['is_self_signed'];
+            $validTo = $certInfo['valid_to'];
             $expiresAt = date('Y-m-d H:i:s', $validTo);
-            $daysUntilExpiry = floor(($validTo - time()) / 86400);
-            
-            // Проверка условий: не самоподписанный и срок больше 3 дней
-            $isValid = !$isSelfSigned && $daysUntilExpiry > 3;
-            $isWarning = $daysUntilExpiry <= 30 && $daysUntilExpiry > 3; // Предупреждение если меньше 30 дней
-            
+            $daysUntilExpiry = (int) floor(($validTo - time()) / 86400);
+
+            $isValid = ! $isSelfSigned && $daysUntilExpiry > 3;
+            $isWarning = $daysUntilExpiry <= 30 && $daysUntilExpiry > 3;
+
             return [
                 'status' => $this->determineStatus($isValid, $isWarning),
                 'value' => [
                     'is_valid' => $isValid,
                     'is_self_signed' => $isSelfSigned,
-                    'issuer' => $certData['issuer']['CN'] ?? 'Unknown',
-                    'subject' => $certData['subject']['CN'] ?? 'Unknown',
+                    'issuer' => $certInfo['issuer_cn'],
+                    'subject' => $certInfo['subject_cn'],
                     'expires_at' => $expiresAt,
                     'days_until_expiry' => $daysUntilExpiry,
                 ],
-                'message' => $isSelfSigned 
+                'message' => $isSelfSigned
                     ? 'SSL сертификат самоподписанный'
-                    : ($daysUntilExpiry <= 3 
+                    : ($daysUntilExpiry <= 3
                         ? "SSL сертификат истекает через {$daysUntilExpiry} дней"
-                        : ($isWarning 
+                        : ($isWarning
                             ? "SSL сертификат действителен, но истекает через {$daysUntilExpiry} дней"
                             : "SSL сертификат действителен, истекает через {$daysUntilExpiry} дней")),
             ];
@@ -128,7 +85,7 @@ class SslTest extends BaseTest
                     'is_valid' => false,
                     'error' => 'exception',
                 ],
-                'message' => 'Ошибка при проверке SSL: ' . $e->getMessage(),
+                'message' => 'Ошибка при проверке SSL: '.$e->getMessage(),
             ];
         }
     }

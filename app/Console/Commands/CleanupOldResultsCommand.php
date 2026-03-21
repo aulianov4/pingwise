@@ -12,28 +12,29 @@ class CleanupOldResultsCommand extends Command
      *
      * @var string
      */
-    protected $signature = 'pingwise:cleanup';
+    protected $signature = 'pingwise:cleanup {--days=365 : Количество дней хранения результатов}';
 
     /**
      * The console command description.
      *
      * @var string
      */
-    protected $description = 'Удалить результаты тестов старше года';
+    protected $description = 'Удалить результаты тестов старше указанного периода';
 
     /**
      * Execute the console command.
      */
     public function handle(): int
     {
-        $cutoffDate = now()->subYear();
-        
+        $days = (int) $this->option('days');
+        $cutoffDate = now()->subDays($days);
+
         $this->info("Удаление результатов тестов старше {$cutoffDate->format('Y-m-d H:i:s')}...");
-        
+
         $deleted = TestResult::where('checked_at', '<', $cutoffDate)->delete();
-        
+
         $this->info("Удалено записей: {$deleted}");
-        
+
         return Command::SUCCESS;
     }
 }

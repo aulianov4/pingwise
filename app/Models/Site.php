@@ -30,7 +30,6 @@ class Site extends Model
         'notification_settings' => 'array',
     ];
 
-
     /**
      * Получить пользователя, которому принадлежит сайт
      */
@@ -86,6 +85,7 @@ class Site extends Model
     public function isTestEnabled(string $testType): bool
     {
         $test = $this->getTestConfig($testType);
+
         return $test && $test->is_enabled;
     }
 

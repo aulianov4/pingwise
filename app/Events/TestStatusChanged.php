@@ -20,4 +20,3 @@ class TestStatusChanged
         public readonly ?TestResult $previousResult,
     ) {}
 }
-

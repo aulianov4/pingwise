@@ -95,5 +95,3 @@ class WhoisParser
         return null;
     }
 }
-
-

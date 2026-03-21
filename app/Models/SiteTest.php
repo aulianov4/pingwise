@@ -22,7 +22,6 @@ class SiteTest extends Model
         'settings' => 'array',
     ];
 
-
     /**
      * Получить сайт
      */
