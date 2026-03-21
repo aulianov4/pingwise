@@ -15,6 +15,7 @@ app/
 ├── Observers/              # SiteObserver — инициализация тестов при создании сайта
 ├── Providers/              # AppServiceProvider (DI-биндинги), AdminPanelProvider
 ├── Services/
+│   ├── Ssl/                # SslCheckerInterface → SslChecker
 │   ├── Telegram/           # TelegramBotInterface → TelegramBotService, TelegramMessageFormatter
 │   ├── Whois/              # WhoisClientInterface → WhoisClient, WhoisParser
 │   ├── TestRegistry.php    # Реестр тестов (tagged bindings)
@@ -24,7 +25,7 @@ app/
     ├── TestMetadataInterface.php # getType(), getName(), getDefaultInterval()
     ├── BaseTest.php             # Абстрактный базовый класс с execute() + error handling
     ├── AvailabilityTest.php     # HTTP-проверка (Http::fake в тестах)
-    ├── SslTest.php              # SSL-сертификат через stream_socket_client
+    ├── SslTest.php              # SSL-сертификат через SslCheckerInterface
     └── DomainTest.php           # WHOIS через WhoisClientInterface
 ```
 
@@ -63,6 +64,7 @@ return [
 
 Все биндинги в `AppServiceProvider::register()`:
 - `WhoisClientInterface` → `WhoisClient` (bind)
+- `SslCheckerInterface` → `SslChecker` (bind)
 - `TelegramBotInterface` → `TelegramBotService` (singleton, принимает `config('services.telegram.bot_token')`)
 - `TestRegistry` — singleton, получает тесты через `$app->tagged('site_tests')`
 - `TestService` — singleton, зависит от `TestRegistry` и `Dispatcher`
@@ -94,9 +96,9 @@ return [
 
 ## Known Gaps
 
-- **Фабрики**: существует только `UserFactory`. Для `Site`, `SiteTest`, `TestResult` фабрик нет — создайте их перед написанием тестов (см. `TODO.md`)
-- **Тесты (PHPUnit)**: только заглушки `ExampleTest` в `tests/Feature/` и `tests/Unit/`. План тестирования описан в `TODO.md`
-- `TelegramChat` не использует `HasFactory`
+- ~~**Фабрики**: существует только `UserFactory`. Для `Site`, `SiteTest`, `TestResult` фабрик нет~~ — ✅ Созданы фабрики для всех моделей
+- ~~**Тесты (PHPUnit)**: только заглушки `ExampleTest`~~ — ✅ 62 теста покрывают модели, сервисы, доменные тесты, команды и Filament
+- ~~`TelegramChat` не использует `HasFactory`~~ — ✅ Исправлено
 
 ## DDEV Environment
 

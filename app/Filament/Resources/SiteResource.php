@@ -138,9 +138,7 @@ class SiteResource extends Resource
                     ->label('Последний статус')
                     ->badge()
                     ->state(function (Site $record): ?string {
-                        $lastResult = $record->testResults()->latest('checked_at')->first();
-
-                        return $lastResult?->status;
+                        return $record->testResults->first()?->status;
                     })
                     ->color(fn (?string $state): string => match ($state) {
                         'success' => 'success',
@@ -167,6 +165,22 @@ class SiteResource extends Resource
                     ->label('Запустить проверки')
                     ->icon('heroicon-o-play')
                     ->action(function (Site $record) {
+                        $rateLimitKey = 'run_tests_site_'.$record->id;
+
+                        if (\Illuminate\Support\Facades\RateLimiter::tooManyAttempts($rateLimitKey, 1)) {
+                            $seconds = \Illuminate\Support\Facades\RateLimiter::availableIn($rateLimitKey);
+
+                            \Filament\Notifications\Notification::make()
+                                ->title('Слишком частые запросы')
+                                ->body("Повторный запуск будет доступен через {$seconds} сек.")
+                                ->warning()
+                                ->send();
+
+                            return;
+                        }
+
+                        \Illuminate\Support\Facades\RateLimiter::hit($rateLimitKey, 60);
+
                         $testService = app(TestService::class);
                         $runCount = 0;
                         $errors = [];
