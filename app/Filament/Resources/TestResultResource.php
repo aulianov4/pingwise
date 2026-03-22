@@ -42,6 +42,7 @@ class TestResultResource extends Resource
                         'availability' => 'Доступность сайта',
                         'ssl' => 'SSL сертификат',
                         'domain' => 'Регистрация домена',
+                        'sitemap' => 'Аудит карты сайта',
                         default => $state,
                     })
                     ->disabled(),
@@ -129,6 +130,7 @@ class TestResultResource extends Resource
                         'availability' => 'Доступность сайта',
                         'ssl' => 'SSL сертификат',
                         'domain' => 'Регистрация домена',
+                        'sitemap' => 'Аудит карты сайта',
                     ])
                     ->multiple(),
                 Tables\Filters\SelectFilter::make('status')

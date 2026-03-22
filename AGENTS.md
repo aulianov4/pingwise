@@ -15,6 +15,8 @@ app/
 ├── Observers/              # SiteObserver — инициализация тестов при создании сайта
 ├── Providers/              # AppServiceProvider (DI-биндинги), AdminPanelProvider
 ├── Services/
+│   ├── Sitemap/            # SitemapParserInterface → SitemapParser, SitemapCheckerInterface → SitemapChecker,
+│   │                       #   SiteCrawlerInterface → SiteCrawler, UrlNormalizer
 │   ├── Ssl/                # SslCheckerInterface → SslChecker
 │   ├── Telegram/           # TelegramBotInterface → TelegramBotService, TelegramMessageFormatter
 │   ├── Whois/              # WhoisClientInterface → WhoisClient, WhoisParser
@@ -26,7 +28,8 @@ app/
     ├── BaseTest.php             # Абстрактный базовый класс с execute() + error handling
     ├── AvailabilityTest.php     # HTTP-проверка (Http::fake в тестах)
     ├── SslTest.php              # SSL-сертификат через SslCheckerInterface
-    └── DomainTest.php           # WHOIS через WhoisClientInterface
+    ├── DomainTest.php           # WHOIS через WhoisClientInterface
+    └── SitemapAuditTest.php     # Аудит sitemap через SitemapParser/Checker/Crawler
 ```
 
 ## Domain Model
@@ -41,7 +44,7 @@ User → hasMany → Site → hasMany → SiteTest (тип + настройки 
 - `SiteTest.settings` (array cast): `interval_minutes`
 - `TestResult.value` (array cast): структура зависит от типа теста
 - Статусы результатов: `success`, `warning`, `failed`
-- Типы тестов: `availability`, `ssl`, `domain`
+- Типы тестов: `availability`, `ssl`, `domain`, `sitemap`
 
 ## Adding a New Test Type
 
@@ -65,10 +68,13 @@ return [
 Все биндинги в `AppServiceProvider::register()`:
 - `WhoisClientInterface` → `WhoisClient` (bind)
 - `SslCheckerInterface` → `SslChecker` (bind)
+- `SitemapParserInterface` → `SitemapParser` (bind)
+- `SitemapCheckerInterface` → `SitemapChecker` (bind)
+- `SiteCrawlerInterface` → `SiteCrawler` (bind)
 - `TelegramBotInterface` → `TelegramBotService` (singleton, принимает `config('services.telegram.bot_token')`)
 - `TestRegistry` — singleton, получает тесты через `$app->tagged('site_tests')`
 - `TestService` — singleton, зависит от `TestRegistry` и `Dispatcher`
-- Тесты (`AvailabilityTest`, `SslTest`, `DomainTest`) зарегистрированы через `$this->app->tag()`
+- Тесты (`AvailabilityTest`, `SslTest`, `DomainTest`, `SitemapAuditTest`) зарегистрированы через `$this->app->tag()`
 
 ## Event Flow
 
@@ -97,7 +103,7 @@ return [
 ## Known Gaps
 
 - ~~**Фабрики**: существует только `UserFactory`. Для `Site`, `SiteTest`, `TestResult` фабрик нет~~ — ✅ Созданы фабрики для всех моделей
-- ~~**Тесты (PHPUnit)**: только заглушки `ExampleTest`~~ — ✅ 62 теста покрывают модели, сервисы, доменные тесты, команды и Filament
+- ~~**Тесты (PHPUnit)**: только заглушки `ExampleTest`~~ — ✅ 117 тестов покрывают модели, сервисы, доменные тесты, команды и Filament
 - ~~`TelegramChat` не использует `HasFactory`~~ — ✅ Исправлено
 
 ## DDEV Environment

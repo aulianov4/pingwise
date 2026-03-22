@@ -20,7 +20,7 @@ class TestResultFactory extends Factory
     {
         return [
             'site_id' => Site::factory(),
-            'test_type' => fake()->randomElement(['availability', 'ssl', 'domain']),
+            'test_type' => fake()->randomElement(['availability', 'ssl', 'domain', 'sitemap']),
             'status' => 'success',
             'value' => null,
             'message' => 'Тест выполнен успешно',
@@ -89,6 +89,28 @@ class TestResultFactory extends Factory
             'value' => [
                 'domain' => fake()->domainName(),
                 'days_since_registration' => fake()->numberBetween(100, 5000),
+            ],
+        ]);
+    }
+
+    /**
+     * Результат для аудита карты сайта.
+     */
+    public function sitemap(): static
+    {
+        return $this->state(fn (array $attributes) => [
+            'test_type' => 'sitemap',
+            'value' => [
+                'sitemap_urls_count' => fake()->numberBetween(10, 200),
+                'crawled_urls_count' => fake()->numberBetween(10, 100),
+                'dead_pages' => [],
+                'missing_from_sitemap' => [],
+                'redirecting_in_sitemap' => [],
+                'non_200_pages' => [],
+                'canonical_issues' => [],
+                'has_sitemap' => true,
+                'crawl_limited' => false,
+                'sitemap_parse_errors' => [],
             ],
         ]);
     }
