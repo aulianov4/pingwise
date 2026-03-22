@@ -20,7 +20,7 @@ class SiteTestFactory extends Factory
     {
         return [
             'site_id' => Site::factory(),
-            'test_type' => fake()->randomElement(['availability', 'ssl', 'domain']),
+            'test_type' => fake()->randomElement(['availability', 'ssl', 'domain', 'sitemap']),
             'is_enabled' => true,
             'settings' => [
                 'interval_minutes' => 5,
@@ -58,6 +58,23 @@ class SiteTestFactory extends Factory
         return $this->state(fn (array $attributes) => [
             'test_type' => 'domain',
             'settings' => ['interval_minutes' => 1440],
+        ]);
+    }
+
+    /**
+     * Тест аудита карты сайта.
+     */
+    public function sitemap(): static
+    {
+        return $this->state(fn (array $attributes) => [
+            'test_type' => 'sitemap',
+            'settings' => [
+                'interval_minutes' => 1440,
+                'max_crawl_pages' => 5000,
+                'crawl_timeout_seconds' => 300,
+                'sitemap_url' => '/sitemap.xml',
+                'check_concurrency' => 10,
+            ],
         ]);
     }
 

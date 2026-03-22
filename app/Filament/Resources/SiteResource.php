@@ -17,6 +17,7 @@ use Filament\Forms;
 use Filament\Resources\Resource;
 use Filament\Schemas\Components\Grid;
 use Filament\Schemas\Components\Section;
+use Filament\Schemas\Components\Utilities\Get;
 use Filament\Schemas\Schema;
 use Filament\Tables;
 use Filament\Tables\Table;
@@ -60,20 +61,13 @@ class SiteResource extends Resource
                         Forms\Components\Repeater::make('siteTests')
                             ->relationship('siteTests')
                             ->schema([
-                                Forms\Components\TextInput::make('test_type')
+                                Forms\Components\Select::make('test_type')
                                     ->label('Тип теста')
+                                    ->options(fn () => collect(app(TestService::class)->getAllTests())
+                                        ->mapWithKeys(fn ($test, $key) => [$key => $test->getName()])
+                                        ->toArray())
                                     ->disabled()
-                                    ->dehydrated()
-                                    ->formatStateUsing(function ($state) {
-                                        $test = app(TestService::class)->getTest($state);
-
-                                        return $test ? $test->getName() : $state;
-                                    })
-                                    ->afterStateHydrated(function ($component, $state) {
-                                        if ($state) {
-                                            $component->extraAttributes(['data-original-value' => $state]);
-                                        }
-                                    }),
+                                    ->dehydrated(),
                                 Forms\Components\Toggle::make('is_enabled')
                                     ->label('Включен')
                                     ->default(true),
@@ -83,6 +77,37 @@ class SiteResource extends Resource
                                     ->required()
                                     ->default(fn ($record, $get) => app(TestService::class)->getTest($get('test_type'))?->getDefaultInterval() ?? 60
                                     ),
+                                Section::make('Настройки Sitemap')
+                                    ->schema([
+                                        Forms\Components\TextInput::make('settings.max_crawl_pages')
+                                            ->label('Макс. страниц для обхода')
+                                            ->numeric()
+                                            ->default(5000)
+                                            ->minValue(1)
+                                            ->maxValue(50000)
+                                            ->helperText('Максимальное количество страниц при BFS-обходе сайта'),
+                                        Forms\Components\TextInput::make('settings.crawl_timeout_seconds')
+                                            ->label('Таймаут обхода (секунды)')
+                                            ->numeric()
+                                            ->default(300)
+                                            ->minValue(10)
+                                            ->maxValue(600)
+                                            ->helperText('Максимальное время на обход сайта'),
+                                        Forms\Components\TextInput::make('settings.sitemap_url')
+                                            ->label('Путь к sitemap')
+                                            ->default('/sitemap.xml')
+                                            ->helperText('Относительный путь от корня сайта'),
+                                        Forms\Components\TextInput::make('settings.check_concurrency')
+                                            ->label('Параллельные запросы')
+                                            ->numeric()
+                                            ->default(10)
+                                            ->minValue(1)
+                                            ->maxValue(50)
+                                            ->helperText('Количество одновременных HEAD-запросов при проверке URL'),
+                                    ])
+                                    ->visible(fn (Get $get): bool => $get('test_type') === 'sitemap')
+                                    ->columns(2)
+                                    ->compact(),
                             ])
                             ->defaultItems(0)
                             ->itemLabel(fn (array $state): ?string => app(TestService::class)->getTest($state['test_type'] ?? '')?->getName()

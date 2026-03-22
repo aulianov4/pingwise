@@ -23,10 +23,11 @@ class TestServiceTest extends TestCase
 
         $tests = $registry->all();
 
-        $this->assertCount(3, $tests);
+        $this->assertCount(4, $tests);
         $this->assertArrayHasKey('availability', $tests);
         $this->assertArrayHasKey('ssl', $tests);
         $this->assertArrayHasKey('domain', $tests);
+        $this->assertArrayHasKey('sitemap', $tests);
     }
 
     public function test_get_test_returns_instance_by_type(): void
@@ -134,10 +135,11 @@ class TestServiceTest extends TestCase
         $site = Site::factory()->createQuietly();
         $service->initializeTestsForSite($site);
 
-        $this->assertCount(3, $site->siteTests()->get());
+        $this->assertCount(4, $site->siteTests()->get());
         $this->assertNotNull($site->siteTests()->where('test_type', 'availability')->first());
         $this->assertNotNull($site->siteTests()->where('test_type', 'ssl')->first());
         $this->assertNotNull($site->siteTests()->where('test_type', 'domain')->first());
+        $this->assertNotNull($site->siteTests()->where('test_type', 'sitemap')->first());
     }
 
     public function test_initialize_tests_for_site_does_not_duplicate(): void
@@ -148,6 +150,6 @@ class TestServiceTest extends TestCase
         $service->initializeTestsForSite($site);
         $service->initializeTestsForSite($site);
 
-        $this->assertCount(3, $site->siteTests()->get());
+        $this->assertCount(4, $site->siteTests()->get());
     }
 }

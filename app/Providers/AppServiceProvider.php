@@ -6,6 +6,12 @@ use App\Events\TestStatusChanged;
 use App\Listeners\SendTelegramAlert;
 use App\Models\Site;
 use App\Observers\SiteObserver;
+use App\Services\Sitemap\SiteCrawler;
+use App\Services\Sitemap\SiteCrawlerInterface;
+use App\Services\Sitemap\SitemapChecker;
+use App\Services\Sitemap\SitemapCheckerInterface;
+use App\Services\Sitemap\SitemapParser;
+use App\Services\Sitemap\SitemapParserInterface;
 use App\Services\Ssl\SslChecker;
 use App\Services\Ssl\SslCheckerInterface;
 use App\Services\Telegram\TelegramBotInterface;
@@ -17,6 +23,7 @@ use App\Services\Whois\WhoisClient;
 use App\Services\Whois\WhoisClientInterface;
 use App\Tests\AvailabilityTest;
 use App\Tests\DomainTest;
+use App\Tests\SitemapAuditTest;
 use App\Tests\SslTest;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\ServiceProvider;
@@ -37,12 +44,18 @@ class AppServiceProvider extends ServiceProvider
         // SSL — привязка интерфейса к реализации (DIP)
         $this->app->bind(SslCheckerInterface::class, SslChecker::class);
 
+        // Sitemap — привязка интерфейсов к реализациям (DIP)
+        $this->app->bind(SitemapParserInterface::class, SitemapParser::class);
+        $this->app->bind(SitemapCheckerInterface::class, SitemapChecker::class);
+        $this->app->bind(SiteCrawlerInterface::class, SiteCrawler::class);
+
         // Регистрация отдельных тестов (OCP — для добавления нового теста
         // достаточно добавить строку сюда и создать класс, не меняя существующий код)
         $this->app->tag([
             AvailabilityTest::class,
             SslTest::class,
             DomainTest::class,
+            SitemapAuditTest::class,
         ], 'site_tests');
 
         // Реестр тестов — получает тесты через tagged bindings

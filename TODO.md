@@ -54,7 +54,23 @@
 - [x] `test_connection_failed_returns_failed` — дополнительно
 - [x] `test_metadata` — дополнительно
 
-### `tests/Unit/Models/SiteTestTest.php`
+### `tests/Unit/Tests/SitemapAuditTestTest.php`
+- [x] `test_metadata` — проверка type, name, defaultInterval
+- [x] `test_successful_audit_with_no_issues` — sitemap есть, все URL 200, ничего не пропущено → success
+- [x] `test_missing_sitemap_returns_failed` — sitemap не найден → failed
+- [x] `test_dead_pages_from_head_check` — 404 в sitemap → failed, non_200_pages
+- [x] `test_missing_from_sitemap_returns_warning` — страницы на сайте, но не в sitemap → warning
+- [x] `test_redirecting_in_sitemap_via_status_code` — 301 в sitemap → warning, redirecting_in_sitemap
+- [x] `test_canonical_issues_from_crawler` — canonical ≠ URL → warning, canonical_issues
+- [x] `test_unreachable_page_via_head_check` — status_code=0 → failed, dead_pages
+- [x] `test_redirect_via_redirect_target_detected` — redirect_target при 200 → redirecting_in_sitemap
+- [x] `test_crawl_limited_flag_is_propagated` — crawl_limited=true пробрасывается в результат
+- [x] `test_uses_custom_settings_from_site_test` — кастомные настройки (sitemap_url, max_crawl_pages и т.д.)
+- [x] `test_server_error_pages_returns_failed` — 500 → failed, non_200_pages
+- [x] `test_multiple_issues_combined` — несколько проблем одновременно → failed
+- [x] `test_checked_urls_count_in_result` — проверка счётчиков checked_urls_count и sitemap_urls_count
+- [x] `test_trailing_slash_url_is_not_false_positive_redirect` — URL с trailing slash из sitemap не считается ложным редиректом
+- [x] `test_trivial_trailing_slash_redirect_is_ignored` — redirect_target совпадающий с URL после нормализации игнорируется
 - [x] `test_get_interval_minutes_from_settings` — settings содержит interval_minutes=10 → возвращает 10
 - [x] `test_get_interval_minutes_defaults_when_no_settings` — нет settings → 60 (безопасный fallback)
 - [x] `test_get_interval_minutes_defaults_when_empty_settings` — дополнительно
@@ -98,7 +114,7 @@
 
 ---
 
-## Итого: 62 теста (изначально планировалось ~28)
+## Итого: 117 тестов (изначально планировалось ~28)
 
 ### Выполненные улучшения кода:
 - [x] Фабрики для всех моделей (Site, SiteTest, TestResult, TelegramChat)
