@@ -163,7 +163,7 @@ class SiteResource extends Resource
                     ->label('Последний статус')
                     ->badge()
                     ->state(function (Site $record): ?string {
-                        return $record->testResults->first()?->status;
+                        return $record->latestTestResult?->status;
                     })
                     ->color(fn (?string $state): string => match ($state) {
                         'success' => 'success',
@@ -286,8 +286,6 @@ class SiteResource extends Resource
     {
         return parent::getEloquentQuery()
             ->where('user_id', Auth::id())
-            ->with(['testResults' => function ($query) {
-                $query->latest('checked_at')->limit(1);
-            }]);
+            ->with('latestTestResult');
     }
 }

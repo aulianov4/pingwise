@@ -6,6 +6,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 /**
  * Модель сайта (SRP).
@@ -60,6 +61,15 @@ class Site extends Model
     public function testResults(): HasMany
     {
         return $this->hasMany(TestResult::class);
+    }
+
+    /**
+     * Получить последний результат теста (любого типа) для сайта.
+     * Использует latestOfMany для корректного LIMIT 1 на сайт (не глобальный!).
+     */
+    public function latestTestResult(): HasOne
+    {
+        return $this->hasOne(TestResult::class)->latestOfMany('checked_at');
     }
 
     /**
