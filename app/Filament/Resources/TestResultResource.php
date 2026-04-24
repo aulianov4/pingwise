@@ -5,6 +5,7 @@ namespace App\Filament\Resources;
 use App\Filament\Resources\TestResultResource\Pages;
 use App\Models\Site;
 use App\Models\TestResult;
+use App\Models\User;
 use BackedEnum;
 use Filament\Actions\ViewAction;
 use Filament\Forms;
@@ -116,7 +117,15 @@ class TestResultResource extends Resource
                 Tables\Filters\SelectFilter::make('site_id')
                     ->label('Сайт')
                     ->options(function () {
-                        return Site::where('user_id', Auth::id())
+                        /** @var User $user */
+                        $user = Auth::user();
+
+                        if ($user->isSuperadmin()) {
+                            return Site::query()->orderBy('name')->pluck('name', 'id')->toArray();
+                        }
+
+                        return Site::query()
+                            ->whereIn('project_id', $user->accessibleProjectIds())
                             ->orderBy('name')
                             ->pluck('name', 'id')
                             ->toArray();
@@ -182,9 +191,17 @@ class TestResultResource extends Resource
 
     public static function getEloquentQuery(): Builder
     {
-        return parent::getEloquentQuery()
-            ->whereHas('site', function (Builder $query) {
-                $query->where('user_id', Auth::id());
-            });
+        /** @var User $user */
+        $user = Auth::user();
+
+        $query = parent::getEloquentQuery();
+
+        if ($user->isSuperadmin()) {
+            return $query;
+        }
+
+        return $query->whereHas('site', function (Builder $query) use ($user) {
+            $query->whereIn('project_id', $user->accessibleProjectIds());
+        });
     }
 }

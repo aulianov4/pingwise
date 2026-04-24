@@ -2,9 +2,12 @@
 
 namespace App\Filament\Resources;
 
+use App\Enums\ProjectRole;
 use App\Filament\Resources\SiteResource\Pages;
+use App\Models\Project;
 use App\Models\Site;
 use App\Models\TelegramChat;
+use App\Models\User;
 use App\Services\TestService;
 use BackedEnum;
 use Filament\Actions\Action;
@@ -14,6 +17,7 @@ use Filament\Actions\DeleteBulkAction;
 use Filament\Actions\EditAction;
 use Filament\Actions\ViewAction;
 use Filament\Forms;
+use Filament\Notifications\Notification;
 use Filament\Resources\Resource;
 use Filament\Schemas\Components\Grid;
 use Filament\Schemas\Components\Section;
@@ -23,6 +27,8 @@ use Filament\Tables;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\RateLimiter;
 
 class SiteResource extends Resource
 {
@@ -38,6 +44,12 @@ class SiteResource extends Resource
 
     public static function form(Schema $schema): Schema
     {
+        /** @var User $user */
+        $user = Auth::user();
+
+        $canEditTelegram = $user->isSuperadmin()
+            || $user->projects()->wherePivot('role', ProjectRole::Admin->value)->exists();
+
         return $schema
             ->schema([
                 Grid::make(3)
@@ -56,6 +68,32 @@ class SiteResource extends Resource
                             ->label('Активен')
                             ->default(true),
                     ]),
+                Forms\Components\Select::make('project_id')
+                    ->label('Проект')
+                    ->options(function () use ($user): array {
+                        if ($user->isSuperadmin()) {
+                            return Project::query()->orderBy('name')->pluck('name', 'id')->all();
+                        }
+
+                        return $user->projects()
+                            ->wherePivot('role', ProjectRole::Admin->value)
+                            ->orderBy('name')
+                            ->pluck('projects.name', 'projects.id')
+                            ->all();
+                    })
+                    ->required()
+                    ->searchable()
+                    ->rules([
+                        function () {
+                            return function (string $attribute, mixed $value, \Closure $fail) {
+                                $project = Project::find($value);
+                                if ($project && $project->hasReachedSiteLimit()) {
+                                    $fail("В проекте \"{$project->name}\" достигнут лимит сайтов ({$project->max_sites}).");
+                                }
+                            };
+                        },
+                    ])
+                    ->columnSpanFull(),
                 Section::make('Настройки тестов')
                     ->schema([
                         Forms\Components\Repeater::make('siteTests')
@@ -137,6 +175,7 @@ class SiteResource extends Resource
                             ->helperText('Отправлять сводку по всем тестам каждый день в 09:00')
                             ->default(false),
                     ])
+                    ->visible($canEditTelegram)
                     ->visibleOn('edit')
                     ->collapsible()
                     ->columnSpanFull(),
@@ -147,6 +186,11 @@ class SiteResource extends Resource
     {
         return $table
             ->columns([
+                Tables\Columns\TextColumn::make('project.name')
+                    ->label('Проект')
+                    ->searchable()
+                    ->sortable()
+                    ->toggleable(),
                 Tables\Columns\TextColumn::make('name')
                     ->label('Название')
                     ->searchable()
@@ -179,6 +223,11 @@ class SiteResource extends Resource
                     ->toggleable(isToggledHiddenByDefault: true),
             ])
             ->filters([
+                Tables\Filters\SelectFilter::make('project_id')
+                    ->label('Проект')
+                    ->relationship('project', 'name')
+                    ->searchable()
+                    ->preload(),
                 Tables\Filters\TernaryFilter::make('is_active')
                     ->label('Активен')
                     ->placeholder('Все')
@@ -189,13 +238,16 @@ class SiteResource extends Resource
                 Action::make('run_tests')
                     ->label('Запустить проверки')
                     ->icon('heroicon-o-play')
+                    ->visible(fn () => Auth::user()?->isSuperadmin()
+                        || Auth::user()?->projects()->wherePivot('role', ProjectRole::Admin->value)->exists()
+                    )
                     ->action(function (Site $record) {
                         $rateLimitKey = 'run_tests_site_'.$record->id;
 
-                        if (\Illuminate\Support\Facades\RateLimiter::tooManyAttempts($rateLimitKey, 1)) {
-                            $seconds = \Illuminate\Support\Facades\RateLimiter::availableIn($rateLimitKey);
+                        if (RateLimiter::tooManyAttempts($rateLimitKey, 1)) {
+                            $seconds = RateLimiter::availableIn($rateLimitKey);
 
-                            \Filament\Notifications\Notification::make()
+                            Notification::make()
                                 ->title('Слишком частые запросы')
                                 ->body("Повторный запуск будет доступен через {$seconds} сек.")
                                 ->warning()
@@ -204,14 +256,13 @@ class SiteResource extends Resource
                             return;
                         }
 
-                        \Illuminate\Support\Facades\RateLimiter::hit($rateLimitKey, 60);
+                        RateLimiter::hit($rateLimitKey, 60);
 
                         $testService = app(TestService::class);
                         $runCount = 0;
                         $errors = [];
 
                         try {
-                            // Проверяем, инициализированы ли тесты
                             if ($record->siteTests()->count() === 0) {
                                 $testService->initializeTestsForSite($record);
                                 $record->refresh();
@@ -226,50 +277,57 @@ class SiteResource extends Resource
                                         }
                                     } catch (\Exception $e) {
                                         $errors[] = "Ошибка при выполнении теста {$testType}: ".$e->getMessage();
-                                        \Illuminate\Support\Facades\Log::error("Error running test {$testType} for site {$record->id}: ".$e->getMessage());
+                                        Log::error("Error running test {$testType} for site {$record->id}: ".$e->getMessage());
                                     }
                                 }
                             }
 
                             if (count($errors) > 0) {
-                                \Filament\Notifications\Notification::make()
+                                Notification::make()
                                     ->title('Проверки выполнены с ошибками')
                                     ->body('Запущено: '.$runCount.'. Ошибок: '.count($errors))
                                     ->danger()
                                     ->send();
                             } else {
-                                \Filament\Notifications\Notification::make()
+                                Notification::make()
                                     ->title('Проверки запущены')
                                     ->body("Выполнено тестов: {$runCount}")
                                     ->success()
                                     ->send();
                             }
                         } catch (\Exception $e) {
-                            \Filament\Notifications\Notification::make()
+                            Notification::make()
                                 ->title('Ошибка при запуске проверок')
                                 ->body($e->getMessage())
                                 ->danger()
                                 ->send();
-                            \Illuminate\Support\Facades\Log::error("Error in run_tests action for site {$record->id}: ".$e->getMessage());
+                            Log::error("Error in run_tests action for site {$record->id}: ".$e->getMessage());
                         }
                     })
                     ->requiresConfirmation(),
                 ViewAction::make(),
-                EditAction::make(),
-                DeleteAction::make(),
+                EditAction::make()
+                    ->visible(fn (Site $record) => Auth::user()?->isSuperadmin()
+                        || ($record->project_id && Auth::user()?->isAdminOf($record->project_id))
+                    ),
+                DeleteAction::make()
+                    ->visible(fn (Site $record) => Auth::user()?->isSuperadmin()
+                        || ($record->project_id && Auth::user()?->isAdminOf($record->project_id))
+                    ),
             ])
             ->bulkActions([
                 BulkActionGroup::make([
-                    DeleteBulkAction::make(),
+                    DeleteBulkAction::make()
+                        ->visible(fn () => Auth::user()?->isSuperadmin()
+                            || Auth::user()?->projects()->wherePivot('role', ProjectRole::Admin->value)->exists()
+                        ),
                 ]),
             ]);
     }
 
     public static function getRelations(): array
     {
-        return [
-            //
-        ];
+        return [];
     }
 
     public static function getPages(): array
@@ -284,8 +342,17 @@ class SiteResource extends Resource
 
     public static function getEloquentQuery(): Builder
     {
-        return parent::getEloquentQuery()
-            ->where('user_id', Auth::id())
-            ->with('latestTestResult');
+        /** @var User $user */
+        $user = Auth::user();
+
+        $query = parent::getEloquentQuery()->with('latestTestResult', 'project');
+
+        if ($user->isSuperadmin()) {
+            return $query;
+        }
+
+        $projectIds = $user->accessibleProjectIds();
+
+        return $query->whereIn('project_id', $projectIds);
     }
 }
