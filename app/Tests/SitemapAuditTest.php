@@ -2,11 +2,13 @@
 
 namespace App\Tests;
 
+use App\Models\AuditPage;
 use App\Models\Site;
 use App\Services\Sitemap\SiteCrawlerInterface;
 use App\Services\Sitemap\SitemapCheckerInterface;
 use App\Services\Sitemap\SitemapParserInterface;
 use App\Services\Sitemap\UrlNormalizer;
+use Illuminate\Support\Carbon;
 
 /**
  * Аудит карты сайта (SRP).
@@ -15,7 +17,8 @@ use App\Services\Sitemap\UrlNormalizer;
  * Этап 1: парсинг sitemap → список URL.
  * Этап 2: параллельная проверка всех URL из sitemap через HEAD-запросы (SitemapChecker).
  * Этап 3: BFS-обход навигации для поиска страниц, отсутствующих в sitemap (SiteCrawler).
- * Этап 4: сравнение и формирование отчёта.
+ * Этап 4: upsert результатов в audit_pages (текущее состояние URL).
+ * Этап 5: формирование агрегатного отчёта.
  *
  * Зависит от абстракций SitemapParserInterface, SitemapCheckerInterface и SiteCrawlerInterface (DIP).
  */
@@ -64,8 +67,7 @@ class SitemapAuditTest extends BaseTest
         // Нормализованные URL для сравнения с краулером
         $normalizedSitemapUrls = $this->normalizeUrlSet($sitemapResult['urls']);
 
-        // 2. Проверяем ОРИГИНАЛЬНЫЕ URL из sitemap параллельными HEAD-запросами,
-        //    чтобы избежать ложных редиректов из-за удалённого trailing slash
+        // 2. Проверяем ОРИГИНАЛЬНЫЕ URL из sitemap параллельными HEAD-запросами
         $checkResults = $this->sitemapChecker->checkUrls($rawSitemapUrls, $concurrency);
 
         // Маппинг: нормализованный URL → результат проверки
@@ -78,79 +80,39 @@ class SitemapAuditTest extends BaseTest
         $crawlResult = $this->siteCrawler->crawl($baseUrl, $maxCrawlPages, $crawlTimeout);
         $crawledPages = $crawlResult['pages'];
 
-        $crawledMap = [];
-        foreach ($crawledPages as $page) {
-            $crawledMap[$page['url']] = $page;
-        }
-        $crawledUrls = array_keys($crawledMap);
+        // 4. Строим сводную карту всех URL и их состояний
+        $runAt = now();
+        $allPageData = $this->buildPageData(
+            $normalizedSitemapUrls,
+            $checkedMap,
+            $crawledPages,
+        );
 
-        // 4. Анализ URL из sitemap (по данным HEAD-проверки)
-        $deadPages = [];
-        $redirectingInSitemap = [];
-        $non200Pages = [];
+        // 5. Сохраняем состояние URL в audit_pages (upsert)
+        $this->persistAuditPages($site, $allPageData, $normalizedSitemapUrls, $runAt);
 
-        foreach ($normalizedSitemapUrls as $url) {
-            if (isset($checkedMap[$url])) {
-                $check = $checkedMap[$url];
-
-                if ($check['status_code'] === 0) {
-                    $deadPages[] = $url;
-                } elseif ($check['status_code'] >= 300 && $check['status_code'] < 400) {
-                    $redirectingInSitemap[] = $url;
-                } elseif ($check['redirect_target'] !== null && $check['redirect_target'] !== $url) {
-                    // Реальный редирект: цель отличается от исходного URL
-                    // (trailing-slash редиректы игнорируются — после нормализации URL совпадают)
-                    $redirectingInSitemap[] = $url;
-                } elseif ($check['status_code'] !== 200) {
-                    $non200Pages[$url] = $check['status_code'];
-                }
-            } else {
-                $deadPages[] = $url;
-            }
-        }
-
-        // 5. Страницы на сайте, но не в sitemap
-        $missingFromSitemap = array_values(array_diff($crawledUrls, $normalizedSitemapUrls));
-
-        // 6. Canonical-проблемы (из BFS-обхода — там есть HTML)
-        $canonicalIssues = [];
-        foreach ($crawledPages as $page) {
-            if ($page['canonical'] !== null && $page['canonical'] !== $page['url']) {
-                $canonicalIssues[] = $page['url'];
-            }
-        }
-
-        // 7. Дополнительные не-200 из BFS-обхода
-        foreach ($crawledPages as $page) {
-            if ($page['status_code'] !== 200 && $page['status_code'] !== 0 && ! isset($non200Pages[$page['url']])) {
-                if ($page['status_code'] < 300 || $page['status_code'] >= 400) {
-                    $non200Pages[$page['url']] = $page['status_code'];
-                }
-            }
-        }
+        // 6. Считаем агрегаты из собранных данных
+        $counts = $this->computeCounts($normalizedSitemapUrls, $checkedMap, $crawledPages);
 
         $value = [
             'sitemap_urls_count' => count($normalizedSitemapUrls),
             'crawled_urls_count' => $crawlResult['crawled_count'],
             'checked_urls_count' => count($checkResults),
-            'dead_pages' => array_values(array_unique($deadPages)),
-            'missing_from_sitemap' => $missingFromSitemap,
-            'redirecting_in_sitemap' => array_values(array_unique($redirectingInSitemap)),
-            'non_200_pages' => $non200Pages,
-            'canonical_issues' => array_values(array_unique($canonicalIssues)),
+            'dead_count' => $counts['dead'],
+            'non_200_count' => $counts['non_200'],
+            'redirect_count' => $counts['redirect'],
+            'missing_count' => $counts['missing'],
+            'canonical_count' => $counts['canonical'],
             'has_sitemap' => $sitemapResult['has_sitemap'],
             'crawl_limited' => $crawlResult['crawl_limited'],
             'sitemap_parse_errors' => $sitemapResult['errors'],
         ];
 
-        $totalIssues = count($value['dead_pages'])
-            + count($value['non_200_pages'])
-            + count($value['redirecting_in_sitemap'])
-            + count($value['missing_from_sitemap'])
-            + count($value['canonical_issues']);
+        $totalIssues = $counts['dead'] + $counts['non_200'] + $counts['redirect']
+            + $counts['missing'] + $counts['canonical'];
 
-        $status = $this->determineAuditStatus($value, $totalIssues);
-        $message = $this->buildMessage($value, $totalIssues);
+        $status = $this->determineAuditStatus($value, $counts);
+        $message = $this->buildMessage($value, $counts, $totalIssues);
 
         return [
             'status' => $status,
@@ -160,21 +122,200 @@ class SitemapAuditTest extends BaseTest
     }
 
     /**
+     * Собрать сводную карту всех URL и их данных (sitemap + crawl).
+     *
+     * @param  list<string>  $normalizedSitemapUrls
+     * @param  array<string, array{url: string, status_code: int, redirect_target: ?string}>  $checkedMap
+     * @param  list<array{url: string, status_code: int, canonical: ?string, redirect_target: ?string}>  $crawledPages
+     * @return array<string, array{url: string, status_code: int, in_sitemap: bool, in_crawl: bool, redirect_target: ?string, canonical: ?string}>
+     */
+    protected function buildPageData(
+        array $normalizedSitemapUrls,
+        array $checkedMap,
+        array $crawledPages,
+    ): array {
+        $sitemapSet = array_flip($normalizedSitemapUrls);
+        $pages = [];
+
+        // Данные из sitemap + HEAD-проверки
+        foreach ($normalizedSitemapUrls as $url) {
+            $check = $checkedMap[$url] ?? null;
+            $pages[$url] = [
+                'url' => $url,
+                'status_code' => $check['status_code'] ?? 0,
+                'in_sitemap' => true,
+                'in_crawl' => false,
+                'redirect_target' => $check['redirect_target'] ?? null,
+                'canonical' => null,
+            ];
+        }
+
+        // Данные из краулера — merge или новая запись
+        foreach ($crawledPages as $page) {
+            $url = $page['url'];
+
+            if (isset($pages[$url])) {
+                $pages[$url]['in_crawl'] = true;
+                $pages[$url]['canonical'] = $page['canonical'];
+
+                // Используем статус краулера, если HEAD-запрос не отвечал
+                if ($pages[$url]['status_code'] === 0 && $page['status_code'] !== 0) {
+                    $pages[$url]['status_code'] = $page['status_code'];
+                }
+            } else {
+                $pages[$url] = [
+                    'url' => $url,
+                    'status_code' => $page['status_code'],
+                    'in_sitemap' => isset($sitemapSet[$url]),
+                    'in_crawl' => true,
+                    'redirect_target' => $page['redirect_target'],
+                    'canonical' => $page['canonical'],
+                ];
+            }
+        }
+
+        return $pages;
+    }
+
+    /**
+     * Upsert страниц в audit_pages и пометить исчезнувшие.
+     *
+     * @param  array<string, array<string, mixed>>  $allPageData
+     * @param  list<string>  $normalizedSitemapUrls
+     */
+    protected function persistAuditPages(
+        Site $site,
+        array $allPageData,
+        array $normalizedSitemapUrls,
+        Carbon $runAt,
+    ): void {
+        // Сбрасываем флаги присутствия для всех страниц сайта.
+        // Upsert восстановит нужные флаги для страниц, найденных в этом прогоне.
+        // Страницы, исчезнувшие из sitemap/краулера, автоматически получат false.
+        AuditPage::where('site_id', $site->id)
+            ->update(['in_sitemap' => false, 'in_crawl' => false, 'updated_at' => $runAt]);
+
+        if (empty($allPageData)) {
+            return;
+        }
+
+        $rows = [];
+        foreach ($allPageData as $pageData) {
+            $rows[] = [
+                'site_id' => $site->id,
+                'url' => $pageData['url'],
+                'status_code' => $pageData['status_code'],
+                'in_sitemap' => $pageData['in_sitemap'],
+                'in_crawl' => $pageData['in_crawl'],
+                'redirect_target' => $pageData['redirect_target'],
+                'canonical' => $pageData['canonical'],
+                'first_seen_at' => $runAt,
+                'last_seen_at' => $runAt,
+                'last_in_sitemap_at' => $pageData['in_sitemap'] ? $runAt : null,
+                'created_at' => $runAt,
+                'updated_at' => $runAt,
+            ];
+        }
+
+        // Upsert: first_seen_at НЕ обновляем при конфликте (хранит дату первого обнаружения)
+        foreach (array_chunk($rows, 500) as $chunk) {
+            AuditPage::upsert(
+                $chunk,
+                ['site_id', 'url'],
+                ['status_code', 'in_sitemap', 'in_crawl', 'redirect_target', 'canonical', 'last_seen_at', 'updated_at'],
+            );
+        }
+
+        // Обновляем last_in_sitemap_at для текущих URL sitemap
+        foreach (array_chunk($normalizedSitemapUrls, 500) as $chunk) {
+            AuditPage::where('site_id', $site->id)
+                ->whereIn('url', $chunk)
+                ->update(['last_in_sitemap_at' => $runAt]);
+        }
+    }
+
+    /**
+     * Подсчитать количество проблем каждой категории.
+     *
+     * @param  list<string>  $normalizedSitemapUrls
+     * @param  array<string, array{url: string, status_code: int, redirect_target: ?string}>  $checkedMap
+     * @param  list<array{url: string, status_code: int, canonical: ?string, redirect_target: ?string}>  $crawledPages
+     * @return array{dead: int, non_200: int, redirect: int, missing: int, canonical: int}
+     */
+    protected function computeCounts(
+        array $normalizedSitemapUrls,
+        array $checkedMap,
+        array $crawledPages,
+    ): array {
+        $crawledUrls = array_column($crawledPages, 'url');
+
+        $dead = 0;
+        $non200 = 0;
+        $redirect = 0;
+
+        foreach ($normalizedSitemapUrls as $url) {
+            $check = $checkedMap[$url] ?? null;
+            $code = $check['status_code'] ?? 0;
+            $redirectTarget = $check['redirect_target'] ?? null;
+
+            if ($code === 0) {
+                $dead++;
+            } elseif ($code >= 300 && $code < 400) {
+                $redirect++;
+            } elseif ($redirectTarget !== null && $redirectTarget !== $url) {
+                $redirect++;
+            } elseif ($code !== 200) {
+                $non200++;
+            }
+        }
+
+        // Дополнительные не-200 из краулера (не в sitemap)
+        foreach ($crawledPages as $page) {
+            if (! in_array($page['url'], $normalizedSitemapUrls, true)
+                && $page['status_code'] !== 200
+                && $page['status_code'] !== 0
+                && ($page['status_code'] < 300 || $page['status_code'] >= 400)
+            ) {
+                $non200++;
+            }
+        }
+
+        $missing = count(array_diff($crawledUrls, $normalizedSitemapUrls));
+
+        $canonical = 0;
+        foreach ($crawledPages as $page) {
+            if ($page['canonical'] !== null && $page['canonical'] !== $page['url']) {
+                $canonical++;
+            }
+        }
+
+        return [
+            'dead' => $dead,
+            'non_200' => $non200,
+            'redirect' => $redirect,
+            'missing' => $missing,
+            'canonical' => $canonical,
+        ];
+    }
+
+    /**
      * Определить статус аудита.
      *
      * @param  array<string, mixed>  $value
+     * @param  array{dead: int, non_200: int, redirect: int, missing: int, canonical: int}  $counts
      */
-    protected function determineAuditStatus(array $value, int $totalIssues): string
+    protected function determineAuditStatus(array $value, array $counts): string
     {
         if (! $value['has_sitemap']) {
             return 'failed';
         }
 
-        $hasCritical = ! empty($value['dead_pages']) || ! empty($value['non_200_pages']);
-
-        if ($hasCritical) {
+        if ($counts['dead'] > 0 || $counts['non_200'] > 0) {
             return 'failed';
         }
+
+        $totalIssues = $counts['dead'] + $counts['non_200'] + $counts['redirect']
+            + $counts['missing'] + $counts['canonical'];
 
         if ($totalIssues > 0) {
             return 'warning';
@@ -187,8 +328,9 @@ class SitemapAuditTest extends BaseTest
      * Сформировать человекочитаемое сообщение.
      *
      * @param  array<string, mixed>  $value
+     * @param  array{dead: int, non_200: int, redirect: int, missing: int, canonical: int}  $counts
      */
-    protected function buildMessage(array $value, int $totalIssues): string
+    protected function buildMessage(array $value, array $counts, int $totalIssues): string
     {
         if (! $value['has_sitemap']) {
             return 'Sitemap не найден или недоступен';
@@ -200,24 +342,24 @@ class SitemapAuditTest extends BaseTest
 
         $parts = [];
 
-        if (! empty($value['dead_pages'])) {
-            $parts[] = 'мёртвых страниц: '.count($value['dead_pages']);
+        if ($counts['dead'] > 0) {
+            $parts[] = 'мёртвых страниц: '.$counts['dead'];
         }
 
-        if (! empty($value['non_200_pages'])) {
-            $parts[] = 'битых страниц: '.count($value['non_200_pages']);
+        if ($counts['non_200'] > 0) {
+            $parts[] = 'битых страниц: '.$counts['non_200'];
         }
 
-        if (! empty($value['redirecting_in_sitemap'])) {
-            $parts[] = 'редиректов в sitemap: '.count($value['redirecting_in_sitemap']);
+        if ($counts['redirect'] > 0) {
+            $parts[] = 'редиректов в sitemap: '.$counts['redirect'];
         }
 
-        if (! empty($value['missing_from_sitemap'])) {
-            $parts[] = 'не в sitemap: '.count($value['missing_from_sitemap']);
+        if ($counts['missing'] > 0) {
+            $parts[] = 'не в sitemap: '.$counts['missing'];
         }
 
-        if (! empty($value['canonical_issues'])) {
-            $parts[] = 'canonical-проблем: '.count($value['canonical_issues']);
+        if ($counts['canonical'] > 0) {
+            $parts[] = 'canonical-проблем: '.$counts['canonical'];
         }
 
         return "Найдено проблем: {$totalIssues}. ".implode(', ', $parts);

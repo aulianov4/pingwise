@@ -6,6 +6,11 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
+
+/**
+ * @property-read Project|null $project
+ */
 
 /**
  * Модель сайта (SRP).
@@ -20,6 +25,7 @@ class Site extends Model
         'name',
         'url',
         'user_id',
+        'project_id',
         'is_active',
         'telegram_chat_id',
         'notification_settings',
@@ -36,6 +42,14 @@ class Site extends Model
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
+    }
+
+    /**
+     * Получить проект, к которому привязан сайт.
+     */
+    public function project(): BelongsTo
+    {
+        return $this->belongsTo(Project::class);
     }
 
     /**
@@ -60,6 +74,23 @@ class Site extends Model
     public function testResults(): HasMany
     {
         return $this->hasMany(TestResult::class);
+    }
+
+    /**
+     * Получить страницы из аудита карты сайта (текущее состояние)
+     */
+    public function auditPages(): HasMany
+    {
+        return $this->hasMany(AuditPage::class);
+    }
+
+    /**
+     * Получить последний результат теста (любого типа) для сайта.
+     * Использует latestOfMany для корректного LIMIT 1 на сайт (не глобальный!).
+     */
+    public function latestTestResult(): HasOne
+    {
+        return $this->hasOne(TestResult::class)->latestOfMany('checked_at');
     }
 
     /**

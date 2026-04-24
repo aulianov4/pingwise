@@ -2,6 +2,7 @@
 
 namespace Database\Factories;
 
+use App\Models\Project;
 use App\Models\Site;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Factories\Factory;
@@ -22,6 +23,7 @@ class SiteFactory extends Factory
             'name' => fake()->domainWord().' '.fake()->randomElement(['сайт', 'портал', 'сервис']),
             'url' => fake()->randomElement(['https://']).fake()->domainName(),
             'user_id' => User::factory(),
+            'project_id' => Project::factory(),
             'is_active' => true,
         ];
     }

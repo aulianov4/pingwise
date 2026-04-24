@@ -94,9 +94,19 @@ class SitemapAuditTestTest extends TestCase
         $this->assertEquals(2, $result->value['sitemap_urls_count']);
         $this->assertEquals(2, $result->value['crawled_urls_count']);
         $this->assertEquals(2, $result->value['checked_urls_count']);
-        $this->assertEmpty($result->value['dead_pages']);
-        $this->assertEmpty($result->value['missing_from_sitemap']);
-        $this->assertEmpty($result->value['canonical_issues']);
+        $this->assertEquals(0, $result->value['dead_count']);
+        $this->assertEquals(0, $result->value['missing_count']);
+        $this->assertEquals(0, $result->value['canonical_count']);
+
+        // Все страницы записаны в audit_pages
+        $this->assertDatabaseCount('audit_pages', 2);
+        $this->assertDatabaseHas('audit_pages', [
+            'site_id' => $site->id,
+            'url' => 'https://example.com/',
+            'in_sitemap' => true,
+            'in_crawl' => true,
+            'status_code' => 200,
+        ]);
     }
 
     public function test_missing_sitemap_returns_failed(): void
@@ -152,8 +162,15 @@ class SitemapAuditTestTest extends TestCase
         $result = $test->run($site);
 
         $this->assertEquals('failed', $result->status);
-        $this->assertArrayHasKey('https://example.com/old-page', $result->value['non_200_pages']);
+        $this->assertEquals(1, $result->value['non_200_count']);
         $this->assertStringContainsString('битых страниц', $result->message);
+
+        $this->assertDatabaseHas('audit_pages', [
+            'site_id' => $site->id,
+            'url' => 'https://example.com/old-page',
+            'in_sitemap' => true,
+            'status_code' => 404,
+        ]);
     }
 
     public function test_missing_from_sitemap_returns_warning(): void
@@ -182,8 +199,15 @@ class SitemapAuditTestTest extends TestCase
         $result = $test->run($site);
 
         $this->assertEquals('warning', $result->status);
-        $this->assertContains('https://example.com/new-page', $result->value['missing_from_sitemap']);
+        $this->assertEquals(1, $result->value['missing_count']);
         $this->assertStringContainsString('не в sitemap', $result->message);
+
+        $this->assertDatabaseHas('audit_pages', [
+            'site_id' => $site->id,
+            'url' => 'https://example.com/new-page',
+            'in_sitemap' => false,
+            'in_crawl' => true,
+        ]);
     }
 
     public function test_redirecting_in_sitemap_via_status_code(): void
@@ -212,7 +236,15 @@ class SitemapAuditTestTest extends TestCase
         $result = $test->run($site);
 
         $this->assertEquals('warning', $result->status);
-        $this->assertContains('https://example.com/moved', $result->value['redirecting_in_sitemap']);
+        $this->assertEquals(1, $result->value['redirect_count']);
+
+        $this->assertDatabaseHas('audit_pages', [
+            'site_id' => $site->id,
+            'url' => 'https://example.com/moved',
+            'in_sitemap' => true,
+            'status_code' => 301,
+            'redirect_target' => 'https://example.com/new-location',
+        ]);
     }
 
     public function test_canonical_issues_from_crawler(): void
@@ -242,8 +274,14 @@ class SitemapAuditTestTest extends TestCase
         $result = $test->run($site);
 
         $this->assertEquals('warning', $result->status);
-        $this->assertContains('https://example.com/page', $result->value['canonical_issues']);
+        $this->assertEquals(1, $result->value['canonical_count']);
         $this->assertStringContainsString('canonical', $result->message);
+
+        $this->assertDatabaseHas('audit_pages', [
+            'site_id' => $site->id,
+            'url' => 'https://example.com/page',
+            'canonical' => 'https://example.com/other-page',
+        ]);
     }
 
     public function test_unreachable_page_via_head_check(): void
@@ -272,7 +310,14 @@ class SitemapAuditTestTest extends TestCase
         $result = $test->run($site);
 
         $this->assertEquals('failed', $result->status);
-        $this->assertContains('https://example.com/unreachable', $result->value['dead_pages']);
+        $this->assertEquals(1, $result->value['dead_count']);
+
+        $this->assertDatabaseHas('audit_pages', [
+            'site_id' => $site->id,
+            'url' => 'https://example.com/unreachable',
+            'in_sitemap' => true,
+            'status_code' => 0,
+        ]);
     }
 
     public function test_redirect_via_redirect_target_detected(): void
@@ -300,7 +345,14 @@ class SitemapAuditTestTest extends TestCase
         $test = $this->app->make(SitemapAuditTest::class);
         $result = $test->run($site);
 
-        $this->assertContains('https://example.com/old', $result->value['redirecting_in_sitemap']);
+        $this->assertEquals(1, $result->value['redirect_count']);
+
+        $this->assertDatabaseHas('audit_pages', [
+            'site_id' => $site->id,
+            'url' => 'https://example.com/old',
+            'in_sitemap' => true,
+            'redirect_target' => 'https://example.com/new',
+        ]);
     }
 
     public function test_crawl_limited_flag_is_propagated(): void
@@ -395,8 +447,14 @@ class SitemapAuditTestTest extends TestCase
         $result = $test->run($site);
 
         $this->assertEquals('failed', $result->status);
-        $this->assertArrayHasKey('https://example.com/error', $result->value['non_200_pages']);
-        $this->assertEquals(500, $result->value['non_200_pages']['https://example.com/error']);
+        $this->assertEquals(1, $result->value['non_200_count']);
+
+        $this->assertDatabaseHas('audit_pages', [
+            'site_id' => $site->id,
+            'url' => 'https://example.com/error',
+            'in_sitemap' => true,
+            'status_code' => 500,
+        ]);
     }
 
     public function test_multiple_issues_combined(): void
@@ -431,9 +489,19 @@ class SitemapAuditTestTest extends TestCase
         $result = $test->run($site);
 
         $this->assertEquals('failed', $result->status);
-        $this->assertNotEmpty($result->value['non_200_pages']);
-        $this->assertNotEmpty($result->value['redirecting_in_sitemap']);
-        $this->assertNotEmpty($result->value['missing_from_sitemap']);
+        $this->assertGreaterThan(0, $result->value['non_200_count']);
+        $this->assertGreaterThan(0, $result->value['redirect_count']);
+        $this->assertGreaterThan(0, $result->value['missing_count']);
+
+        $this->assertDatabaseHas('audit_pages', [
+            'site_id' => $site->id, 'url' => 'https://example.com/dead', 'in_sitemap' => true, 'status_code' => 404,
+        ]);
+        $this->assertDatabaseHas('audit_pages', [
+            'site_id' => $site->id, 'url' => 'https://example.com/moved', 'in_sitemap' => true, 'redirect_target' => 'https://example.com/new',
+        ]);
+        $this->assertDatabaseHas('audit_pages', [
+            'site_id' => $site->id, 'url' => 'https://example.com/unlisted', 'in_sitemap' => false, 'in_crawl' => true,
+        ]);
     }
 
     public function test_checked_urls_count_in_result(): void
@@ -475,7 +543,6 @@ class SitemapAuditTestTest extends TestCase
      */
     public function test_trailing_slash_url_is_not_false_positive_redirect(): void
     {
-        // Sitemap содержит URL с trailing slash (как реальный admiralpools.ru/sitemap.xml)
         $this->mockSitemapParser([
             'urls' => [
                 'https://example.com/',
@@ -486,7 +553,6 @@ class SitemapAuditTestTest extends TestCase
             'errors' => [],
         ]);
 
-        // Checker получает ОРИГИНАЛЬНЫЕ URL (с trailing slash) → сервер отвечает 200 без редиректа
         $this->mockSitemapChecker([
             ['url' => 'https://example.com/', 'status_code' => 200, 'redirect_target' => null],
             ['url' => 'https://example.com/catalog/product/', 'status_code' => 200, 'redirect_target' => null],
@@ -508,9 +574,9 @@ class SitemapAuditTestTest extends TestCase
         $result = $test->run($site);
 
         $this->assertEquals('success', $result->status);
-        $this->assertEmpty($result->value['redirecting_in_sitemap']);
-        $this->assertEmpty($result->value['dead_pages']);
-        $this->assertEmpty($result->value['non_200_pages']);
+        $this->assertEquals(0, $result->value['redirect_count']);
+        $this->assertEquals(0, $result->value['dead_count']);
+        $this->assertEquals(0, $result->value['non_200_count']);
     }
 
     /**
@@ -525,8 +591,6 @@ class SitemapAuditTestTest extends TestCase
             'errors' => [],
         ]);
 
-        // Сервер делает 200 но с redirect_target, который после нормализации совпадает с исходным URL
-        // (например, /page → /page/ → normalized обратно в /page)
         $this->mockSitemapChecker([
             ['url' => 'https://example.com/', 'status_code' => 200, 'redirect_target' => null],
             ['url' => 'https://example.com/page', 'status_code' => 200, 'redirect_target' => 'https://example.com/page'],
@@ -546,6 +610,63 @@ class SitemapAuditTestTest extends TestCase
         $result = $test->run($site);
 
         $this->assertEquals('success', $result->status);
-        $this->assertEmpty($result->value['redirecting_in_sitemap']);
+        $this->assertEquals(0, $result->value['redirect_count']);
+    }
+
+    public function test_audit_pages_upserted_on_second_run(): void
+    {
+        $this->mockSitemapParser([
+            'urls' => ['https://example.com/', 'https://example.com/page'],
+            'has_sitemap' => true,
+            'errors' => [],
+        ]);
+        $this->mockSitemapChecker([
+            ['url' => 'https://example.com/', 'status_code' => 200, 'redirect_target' => null],
+            ['url' => 'https://example.com/page', 'status_code' => 200, 'redirect_target' => null],
+        ]);
+        $this->mockSiteCrawler([
+            'pages' => [
+                ['url' => 'https://example.com/', 'status_code' => 200, 'canonical' => null, 'redirect_target' => null],
+                ['url' => 'https://example.com/page', 'status_code' => 200, 'canonical' => null, 'redirect_target' => null],
+            ],
+            'crawled_count' => 2,
+            'crawl_limited' => false,
+        ]);
+
+        $site = Site::factory()->createQuietly(['url' => 'https://example.com']);
+        $test = $this->app->make(SitemapAuditTest::class);
+        $test->run($site);
+
+        // Второй прогон — /page исчезает из sitemap
+        $this->mockSitemapParser([
+            'urls' => ['https://example.com/'],
+            'has_sitemap' => true,
+            'errors' => [],
+        ]);
+        $this->mockSitemapChecker([
+            ['url' => 'https://example.com/', 'status_code' => 200, 'redirect_target' => null],
+        ]);
+        $this->mockSiteCrawler([
+            'pages' => [
+                ['url' => 'https://example.com/', 'status_code' => 200, 'canonical' => null, 'redirect_target' => null],
+            ],
+            'crawled_count' => 1,
+            'crawl_limited' => false,
+        ]);
+
+        // Новый экземпляр берёт обновлённые моки из контейнера
+        $test = $this->app->make(SitemapAuditTest::class);
+        $test->run($site);
+
+        // Записей всё ещё 2 (upsert, не дублируем)
+        $this->assertDatabaseCount('audit_pages', 2);
+
+        // /page помечена как не в sitemap и не в crawl
+        $this->assertDatabaseHas('audit_pages', [
+            'site_id' => $site->id,
+            'url' => 'https://example.com/page',
+            'in_sitemap' => false,
+            'in_crawl' => false,
+        ]);
     }
 }

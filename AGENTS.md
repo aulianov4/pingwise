@@ -38,11 +38,13 @@ app/
 User → hasMany → Site → hasMany → SiteTest (тип + настройки теста)
                      → hasMany → TestResult (результат проверки)
                      → belongsTo → TelegramChat (уведомления)
+                     → hasMany → AuditPage (текущее состояние URL из аудита sitemap)
 ```
 
 - `Site.notification_settings` (array cast): `alerts_enabled`, `summary_enabled`
 - `SiteTest.settings` (array cast): `interval_minutes`
-- `TestResult.value` (array cast): структура зависит от типа теста
+- `TestResult.value` (array cast): структура зависит от типа теста; для `sitemap` — только агрегатные счётчики
+- `AuditPage`: текущее состояние каждого URL — обновляется upsert при каждом прогоне `SitemapAuditTest`
 - Статусы результатов: `success`, `warning`, `failed`
 - Типы тестов: `availability`, `ssl`, `domain`, `sitemap`
 
