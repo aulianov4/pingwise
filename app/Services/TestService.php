@@ -112,11 +112,9 @@ class TestService
         $sites = Site::where('is_active', true)->with('siteTests')->get();
 
         foreach ($sites as $site) {
-            if ($site->siteTests->isEmpty()) {
-                $this->initializeTestsForSite($site);
-                $site->refresh();
-                $site->load('siteTests');
-            }
+            $this->initializeTestsForSite($site);
+            $site->refresh();
+            $site->load('siteTests');
 
             foreach ($this->registry->all() as $testType => $test) {
                 $testConfig = $site->siteTests->firstWhere('test_type', $testType);

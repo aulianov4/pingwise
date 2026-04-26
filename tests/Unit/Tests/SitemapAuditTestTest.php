@@ -41,11 +41,19 @@ class SitemapAuditTestTest extends TestCase
 
     /**
      * Подготовить мок SiteCrawlerInterface.
+     * Автоматически добавляет has_deep_pages, max_crawl_depth и depth к страницам если не заданы.
      *
-     * @param  array{pages: list<array{url: string, status_code: int, canonical: ?string, redirect_target: ?string}>, crawled_count: int, crawl_limited: bool}  $result
+     * @param  array{pages: list<array{url: string, status_code: int, canonical: ?string, redirect_target: ?string, depth?: int}>, crawled_count: int, crawl_limited: bool, has_deep_pages?: bool, max_crawl_depth?: int}  $result
      */
     protected function mockSiteCrawler(array $result): void
     {
+        $result['has_deep_pages'] ??= false;
+        $result['max_crawl_depth'] ??= 0;
+        $result['pages'] = array_map(
+            fn (array $page): array => array_merge(['depth' => 0], $page),
+            $result['pages'],
+        );
+
         $mock = $this->createMock(SiteCrawlerInterface::class);
         $mock->method('crawl')->willReturn($result);
         $this->app->instance(SiteCrawlerInterface::class, $mock);
@@ -413,8 +421,8 @@ class SitemapAuditTestTest extends TestCase
         $crawlerMock = $this->createMock(SiteCrawlerInterface::class);
         $crawlerMock->expects($this->once())
             ->method('crawl')
-            ->with('https://example.com', 50, 15)
-            ->willReturn(['pages' => [], 'crawled_count' => 0, 'crawl_limited' => false]);
+            ->with('https://example.com', 50, 15, 5)
+            ->willReturn(['pages' => [], 'crawled_count' => 0, 'crawl_limited' => false, 'has_deep_pages' => false, 'max_crawl_depth' => 0]);
         $this->app->instance(SiteCrawlerInterface::class, $crawlerMock);
 
         $test = $this->app->make(SitemapAuditTest::class);

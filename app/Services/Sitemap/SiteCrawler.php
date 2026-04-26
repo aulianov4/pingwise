@@ -34,7 +34,7 @@ class SiteCrawler implements SiteCrawlerInterface
     /**
      * {@inheritDoc}
      */
-    public function crawl(string $startUrl, int $maxPages = 100, int $timeoutSeconds = 30): array
+    public function crawl(string $startUrl, int $maxPages = 100, int $timeoutSeconds = 30, int $maxDepth = 5): array
     {
         $baseHost = parse_url($startUrl, PHP_URL_HOST);
 
@@ -43,20 +43,26 @@ class SiteCrawler implements SiteCrawlerInterface
                 'pages' => [],
                 'crawled_count' => 0,
                 'crawl_limited' => false,
+                'has_deep_pages' => false,
+                'max_crawl_depth' => 0,
             ];
         }
 
         $startTime = microtime(true);
         $visited = [];
-        $queue = [UrlNormalizer::normalize($startUrl)];
+
+        // Очередь: ['url' => string, 'depth' => int]
+        $queue = [['url' => UrlNormalizer::normalize($startUrl), 'depth' => 0]];
         $pages = [];
+        $hasDeepPages = false;
+        $maxFoundDepth = 0;
 
         while (! empty($queue) && count($visited) < $maxPages) {
             if ((microtime(true) - $startTime) >= $timeoutSeconds) {
                 break;
             }
 
-            $url = array_shift($queue);
+            ['url' => $url, 'depth' => $depth] = array_shift($queue);
 
             if (isset($visited[$url])) {
                 continue;
@@ -71,6 +77,7 @@ class SiteCrawler implements SiteCrawlerInterface
             }
 
             $visited[$url] = true;
+            $maxFoundDepth = max($maxFoundDepth, $depth);
 
             $pageResult = $this->fetchPage($url);
 
@@ -80,11 +87,13 @@ class SiteCrawler implements SiteCrawlerInterface
                     'status_code' => 0,
                     'canonical' => null,
                     'redirect_target' => null,
+                    'depth' => $depth,
                 ];
 
                 continue;
             }
 
+            $pageResult['depth'] = $depth;
             $pages[] = $pageResult;
 
             // Извлекаем внутренние ссылки только из успешных HTML-страниц
@@ -92,13 +101,25 @@ class SiteCrawler implements SiteCrawlerInterface
                 && $pageResult['status_code'] < 400
                 && isset($pageResult['links'])
             ) {
+                $nextDepth = $depth + 1;
+
                 foreach ($pageResult['links'] as $link) {
                     $normalized = UrlNormalizer::normalize($link);
 
-                    if (! isset($visited[$normalized]) && UrlNormalizer::isSameHost($normalized, $baseHost)) {
-                        $queue[] = $normalized;
+                    if (isset($visited[$normalized]) || ! UrlNormalizer::isSameHost($normalized, $baseHost)) {
+                        continue;
                     }
+
+                    if ($nextDepth > $maxDepth) {
+                        // Страницы глубже лимита не обходим, но фиксируем факт их существования
+                        $hasDeepPages = true;
+
+                        continue;
+                    }
+
+                    $queue[] = ['url' => $normalized, 'depth' => $nextDepth];
                 }
+
                 unset($pages[array_key_last($pages)]['links']);
                 $pages = array_values($pages);
             }
@@ -113,6 +134,8 @@ class SiteCrawler implements SiteCrawlerInterface
             'pages' => $pages,
             'crawled_count' => count($pages),
             'crawl_limited' => ! empty($queue) || count($visited) >= $maxPages,
+            'has_deep_pages' => $hasDeepPages,
+            'max_crawl_depth' => $maxFoundDepth,
         ];
     }
 

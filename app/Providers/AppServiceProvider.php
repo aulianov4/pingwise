@@ -25,6 +25,8 @@ use App\Tests\AvailabilityTest;
 use App\Tests\DomainTest;
 use App\Tests\SitemapAuditTest;
 use App\Tests\SslTest;
+use Illuminate\Contracts\Events\Dispatcher;
+use Illuminate\Support\Facades\App;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\ServiceProvider;
 
@@ -67,7 +69,7 @@ class AppServiceProvider extends ServiceProvider
         $this->app->singleton(TestService::class, function ($app) {
             return new TestService(
                 $app->make(TestRegistry::class),
-                $app->make(\Illuminate\Contracts\Events\Dispatcher::class),
+                $app->make(Dispatcher::class),
             );
         });
 
@@ -86,6 +88,10 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+        // Принудительно устанавливаем русский язык интерфейса
+        App::setLocale('ru');
+        App::setFallbackLocale('ru');
+
         // Регистрация Observer вместо логики в Site::boot() (SRP, DIP)
         Site::observe(SiteObserver::class);
 

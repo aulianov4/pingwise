@@ -14,6 +14,7 @@ use Filament\Actions\DeleteAction;
 use Filament\Actions\DeleteBulkAction;
 use Filament\Actions\EditAction;
 use Filament\Forms;
+use Filament\Forms\Components\Repeater;
 use Filament\Resources\Resource;
 use Filament\Schemas\Components\Section;
 use Filament\Schemas\Schema;
@@ -70,7 +71,7 @@ class ProjectResource extends Resource
                     ]),
                 Section::make('Участники проекта')
                     ->schema([
-                        Forms\Components\Repeater::make('projectUsers')
+                        Repeater::make('projectUsers')
                             ->relationship('users')
                             ->schema([
                                 Forms\Components\Select::make('id')
@@ -92,7 +93,45 @@ class ProjectResource extends Resource
                             ->columns(2)
                             ->addActionLabel('Добавить участника')
                             ->defaultItems(0)
-                            ->reorderable(false),
+                            ->reorderable(false)
+                            ->loadStateFromRelationshipsUsing(function (Repeater $component): void {
+                                $component->clearCachedExistingRecords();
+
+                                $record = $component->getRecord();
+
+                                if (! $record?->exists) {
+                                    $component->state([]);
+
+                                    return;
+                                }
+
+                                $state = $record->users()
+                                    ->get()
+                                    ->mapWithKeys(fn (User $user): array => [
+                                        "record-{$user->id}" => [
+                                            'id' => $user->id,
+                                            'role' => $user->pivot->role instanceof ProjectRole
+                                                ? $user->pivot->role->value
+                                                : $user->pivot->role,
+                                        ],
+                                    ])
+                                    ->toArray();
+
+                                $component->state($state);
+                            })
+                            ->saveRelationshipsUsing(function (Repeater $component): void {
+                                $record = $component->getRecord();
+                                $state = $component->getState() ?? [];
+
+                                $syncData = collect($state)
+                                    ->filter(fn (array $item): bool => filled($item['id'] ?? null))
+                                    ->mapWithKeys(fn (array $item): array => [
+                                        $item['id'] => ['role' => $item['role']],
+                                    ])
+                                    ->toArray();
+
+                                $record->users()->sync($syncData);
+                            }),
                     ])
                     ->visibleOn('edit')
                     ->collapsible()
