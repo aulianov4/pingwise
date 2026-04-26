@@ -54,9 +54,19 @@ class SitemapAuditTest extends BaseTest
         $crawlTimeout = $settings['crawl_timeout_seconds'] ?? 300;
         $sitemapPath = $settings['sitemap_url'] ?? '/sitemap.xml';
         $concurrency = $settings['check_concurrency'] ?? 10;
+        $maxDepth = $settings['max_crawl_depth'] ?? 5;
 
         $baseUrl = rtrim($site->url, '/');
         $sitemapUrl = $baseUrl.$sitemapPath;
+
+        // 0. Снимок текущего состояния (для вычисления diff)
+        $isFirstRun = ! AuditPage::where('site_id', $site->id)->exists();
+        $prevSitemapUrls = $isFirstRun
+            ? []
+            : AuditPage::where('site_id', $site->id)->where('in_sitemap', true)->pluck('url')->all();
+        $prevCrawlUrls = $isFirstRun
+            ? []
+            : AuditPage::where('site_id', $site->id)->where('in_crawl', true)->pluck('url')->all();
 
         // 1. Парсим sitemap
         $sitemapResult = $this->sitemapParser->parse($sitemapUrl);
@@ -77,7 +87,7 @@ class SitemapAuditTest extends BaseTest
         }
 
         // 3. BFS-обход навигации для поиска страниц, отсутствующих в sitemap
-        $crawlResult = $this->siteCrawler->crawl($baseUrl, $maxCrawlPages, $crawlTimeout);
+        $crawlResult = $this->siteCrawler->crawl($baseUrl, $maxCrawlPages, $crawlTimeout, $maxDepth);
         $crawledPages = $crawlResult['pages'];
 
         // 4. Строим сводную карту всех URL и их состояний
@@ -88,11 +98,36 @@ class SitemapAuditTest extends BaseTest
             $crawledPages,
         );
 
-        // 5. Сохраняем состояние URL в audit_pages (upsert)
+        // 5. Вычисляем diff до upsert
+        $currentSitemapSet = array_flip($normalizedSitemapUrls);
+        $currentCrawlSet = array_flip(array_column($crawledPages, 'url'));
+        $prevSitemapSet = array_flip($prevSitemapUrls);
+        $prevCrawlSet = array_flip($prevCrawlUrls);
+
+        $newInSitemap = array_diff_key($currentSitemapSet, $prevSitemapSet);
+        $removedFromSitemap = array_diff_key($prevSitemapSet, $currentSitemapSet);
+        $newInCrawl = array_diff_key($currentCrawlSet, $prevCrawlSet);
+        $removedFromCrawl = array_diff_key($prevCrawlSet, $currentCrawlSet);
+
+        // 6. Сохраняем состояние URL в audit_pages (upsert)
         $this->persistAuditPages($site, $allPageData, $normalizedSitemapUrls, $runAt);
 
-        // 6. Считаем агрегаты из собранных данных
+        // 7. Обновляем removed_from_sitemap_at для удалённых URL
+        if (! empty($removedFromSitemap)) {
+            foreach (array_chunk(array_keys($removedFromSitemap), 500) as $chunk) {
+                AuditPage::where('site_id', $site->id)
+                    ->whereIn('url', $chunk)
+                    ->update(['removed_from_sitemap_at' => $runAt]);
+            }
+        }
+
+        // 8. Считаем агрегаты из собранных данных
         $counts = $this->computeCounts($normalizedSitemapUrls, $checkedMap, $crawledPages);
+
+        // Корректное покрытие: % URL из sitemap, найденных краулером
+        $coverage = count($normalizedSitemapUrls) > 0
+            ? round(count(array_intersect_key($currentSitemapSet, $currentCrawlSet)) / count($normalizedSitemapUrls) * 100, 1)
+            : 0;
 
         $value = [
             'sitemap_urls_count' => count($normalizedSitemapUrls),
@@ -105,7 +140,15 @@ class SitemapAuditTest extends BaseTest
             'canonical_count' => $counts['canonical'],
             'has_sitemap' => $sitemapResult['has_sitemap'],
             'crawl_limited' => $crawlResult['crawl_limited'],
+            'has_deep_pages' => $crawlResult['has_deep_pages'],
+            'max_crawl_depth' => $crawlResult['max_crawl_depth'],
             'sitemap_parse_errors' => $sitemapResult['errors'],
+            'coverage' => $coverage,
+            'new_sitemap_count' => $isFirstRun ? 0 : count($newInSitemap),
+            'removed_sitemap_count' => $isFirstRun ? 0 : count($removedFromSitemap),
+            'new_crawl_count' => $isFirstRun ? 0 : count($newInCrawl),
+            'removed_crawl_count' => $isFirstRun ? 0 : count($removedFromCrawl),
+            'is_first_run' => $isFirstRun,
         ];
 
         $totalIssues = $counts['dead'] + $counts['non_200'] + $counts['redirect']
@@ -126,8 +169,8 @@ class SitemapAuditTest extends BaseTest
      *
      * @param  list<string>  $normalizedSitemapUrls
      * @param  array<string, array{url: string, status_code: int, redirect_target: ?string}>  $checkedMap
-     * @param  list<array{url: string, status_code: int, canonical: ?string, redirect_target: ?string}>  $crawledPages
-     * @return array<string, array{url: string, status_code: int, in_sitemap: bool, in_crawl: bool, redirect_target: ?string, canonical: ?string}>
+     * @param  list<array{url: string, status_code: int, canonical: ?string, redirect_target: ?string, depth: int}>  $crawledPages
+     * @return array<string, array{url: string, status_code: int, in_sitemap: bool, in_crawl: bool, crawl_depth: ?int, redirect_target: ?string, canonical: ?string}>
      */
     protected function buildPageData(
         array $normalizedSitemapUrls,
@@ -145,6 +188,7 @@ class SitemapAuditTest extends BaseTest
                 'status_code' => $check['status_code'] ?? 0,
                 'in_sitemap' => true,
                 'in_crawl' => false,
+                'crawl_depth' => null,
                 'redirect_target' => $check['redirect_target'] ?? null,
                 'canonical' => null,
             ];
@@ -156,6 +200,7 @@ class SitemapAuditTest extends BaseTest
 
             if (isset($pages[$url])) {
                 $pages[$url]['in_crawl'] = true;
+                $pages[$url]['crawl_depth'] = $page['depth'];
                 $pages[$url]['canonical'] = $page['canonical'];
 
                 // Используем статус краулера, если HEAD-запрос не отвечал
@@ -168,6 +213,7 @@ class SitemapAuditTest extends BaseTest
                     'status_code' => $page['status_code'],
                     'in_sitemap' => isset($sitemapSet[$url]),
                     'in_crawl' => true,
+                    'crawl_depth' => $page['depth'],
                     'redirect_target' => $page['redirect_target'],
                     'canonical' => $page['canonical'],
                 ];
@@ -207,6 +253,7 @@ class SitemapAuditTest extends BaseTest
                 'status_code' => $pageData['status_code'],
                 'in_sitemap' => $pageData['in_sitemap'],
                 'in_crawl' => $pageData['in_crawl'],
+                'crawl_depth' => $pageData['crawl_depth'],
                 'redirect_target' => $pageData['redirect_target'],
                 'canonical' => $pageData['canonical'],
                 'first_seen_at' => $runAt,
@@ -222,7 +269,7 @@ class SitemapAuditTest extends BaseTest
             AuditPage::upsert(
                 $chunk,
                 ['site_id', 'url'],
-                ['status_code', 'in_sitemap', 'in_crawl', 'redirect_target', 'canonical', 'last_seen_at', 'updated_at'],
+                ['status_code', 'in_sitemap', 'in_crawl', 'crawl_depth', 'redirect_target', 'canonical', 'last_seen_at', 'updated_at'],
             );
         }
 
@@ -239,7 +286,7 @@ class SitemapAuditTest extends BaseTest
      *
      * @param  list<string>  $normalizedSitemapUrls
      * @param  array<string, array{url: string, status_code: int, redirect_target: ?string}>  $checkedMap
-     * @param  list<array{url: string, status_code: int, canonical: ?string, redirect_target: ?string}>  $crawledPages
+     * @param  list<array{url: string, status_code: int, canonical: ?string, redirect_target: ?string, depth: int}>  $crawledPages
      * @return array{dead: int, non_200: int, redirect: int, missing: int, canonical: int}
      */
     protected function computeCounts(

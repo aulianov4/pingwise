@@ -29,11 +29,13 @@ class AuditPageFactory extends Factory
             'status_code' => 200,
             'in_sitemap' => true,
             'in_crawl' => true,
+            'crawl_depth' => 1,
             'redirect_target' => null,
             'canonical' => null,
             'first_seen_at' => $now,
             'last_seen_at' => $now,
             'last_in_sitemap_at' => $now,
+            'removed_from_sitemap_at' => null,
         ];
     }
 

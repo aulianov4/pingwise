@@ -22,19 +22,23 @@ class AuditPage extends Model
         'status_code',
         'in_sitemap',
         'in_crawl',
+        'crawl_depth',
         'redirect_target',
         'canonical',
         'first_seen_at',
         'last_seen_at',
         'last_in_sitemap_at',
+        'removed_from_sitemap_at',
     ];
 
     protected $casts = [
         'in_sitemap' => 'boolean',
         'in_crawl' => 'boolean',
+        'crawl_depth' => 'integer',
         'first_seen_at' => 'datetime',
         'last_seen_at' => 'datetime',
         'last_in_sitemap_at' => 'datetime',
+        'removed_from_sitemap_at' => 'datetime',
     ];
 
     /**

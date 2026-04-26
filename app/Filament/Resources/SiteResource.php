@@ -67,7 +67,8 @@ class SiteResource extends Resource
                         Forms\Components\Toggle::make('is_active')
                             ->label('Активен')
                             ->default(true),
-                    ]),
+                    ])
+                    ->columnSpanFull(),
                 Forms\Components\Select::make('project_id')
                     ->label('Проект')
                     ->options(function () use ($user): array {
@@ -263,10 +264,8 @@ class SiteResource extends Resource
                         $errors = [];
 
                         try {
-                            if ($record->siteTests()->count() === 0) {
-                                $testService->initializeTestsForSite($record);
-                                $record->refresh();
-                            }
+                            $testService->initializeTestsForSite($record);
+                            $record->refresh();
 
                             foreach ($testService->getAllTests() as $testType => $test) {
                                 if ($record->isTestEnabled($testType)) {
