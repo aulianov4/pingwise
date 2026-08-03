@@ -52,7 +52,7 @@ class SiteResource extends Resource
 
         return $schema
             ->schema([
-                Grid::make(3)
+                Grid::make(2)
                     ->schema([
                         Forms\Components\TextInput::make('name')
                             ->label('Название')
@@ -64,10 +64,12 @@ class SiteResource extends Resource
                             ->url()
                             ->maxLength(255)
                             ->helperText('Например: https://example.com'),
-                        Forms\Components\Toggle::make('is_active')
-                            ->label('Активен')
-                            ->default(true),
                     ])
+                    ->columnSpanFull(),
+                Forms\Components\Toggle::make('is_active')
+                    ->label('Активен')
+                    ->default(true)
+                    ->inline(false)
                     ->columnSpanFull(),
                 Forms\Components\Select::make('project_id')
                     ->label('Проект')
@@ -85,35 +87,41 @@ class SiteResource extends Resource
                     ->required()
                     ->searchable()
                     ->rules([
-                        function () {
-                            return function (string $attribute, mixed $value, \Closure $fail) {
-                                $project = Project::find($value);
-                                if ($project && $project->hasReachedSiteLimit()) {
-                                    $fail("В проекте \"{$project->name}\" достигнут лимит сайтов ({$project->max_sites}).");
-                                }
-                            };
+                        fn (?Site $record): \Closure => function (string $attribute, mixed $value, \Closure $fail) use ($record): void {
+                            $project = Project::find($value);
+
+                            if (! $project) {
+                                return;
+                            }
+
+                            // Редактирование сайта в том же проекте не должно упираться в лимит
+                            if ($record && (int) $record->project_id === (int) $value) {
+                                return;
+                            }
+
+                            if ($project->hasReachedSiteLimit()) {
+                                $fail("В проекте \"{$project->name}\" достигнут лимит сайтов ({$project->max_sites}).");
+                            }
                         },
                     ])
                     ->columnSpanFull(),
                 Section::make('Настройки тестов')
                     ->schema([
                         Forms\Components\Repeater::make('siteTests')
+                            ->label('Тесты')
                             ->relationship('siteTests')
                             ->schema([
-                                Forms\Components\Select::make('test_type')
-                                    ->label('Тип теста')
-                                    ->options(fn () => collect(app(TestService::class)->getAllTests())
-                                        ->mapWithKeys(fn ($test, $key) => [$key => $test->getName()])
-                                        ->toArray())
-                                    ->disabled()
+                                Forms\Components\Hidden::make('test_type')
                                     ->dehydrated(),
                                 Forms\Components\Toggle::make('is_enabled')
                                     ->label('Включен')
-                                    ->default(true),
+                                    ->default(true)
+                                    ->inline(false),
                                 Forms\Components\TextInput::make('settings.interval_minutes')
                                     ->label('Интервал (минуты)')
                                     ->numeric()
                                     ->required()
+                                    ->minValue(1)
                                     ->default(fn ($record, $get) => app(TestService::class)->getTest($get('test_type'))?->getDefaultInterval() ?? 60
                                     ),
                                 Section::make('Настройки Sitemap')
@@ -121,33 +129,62 @@ class SiteResource extends Resource
                                         Forms\Components\TextInput::make('settings.max_crawl_pages')
                                             ->label('Макс. страниц для обхода')
                                             ->numeric()
-                                            ->default(5000)
                                             ->minValue(1)
                                             ->maxValue(50000)
-                                            ->helperText('Максимальное количество страниц при BFS-обходе сайта'),
+                                            ->helperText('Максимальное количество страниц при BFS-обходе сайта')
+                                            ->afterStateHydrated(function (Forms\Components\TextInput $component, mixed $state): void {
+                                                if (blank($state)) {
+                                                    $component->state(5000);
+                                                }
+                                            }),
                                         Forms\Components\TextInput::make('settings.crawl_timeout_seconds')
                                             ->label('Таймаут обхода (секунды)')
                                             ->numeric()
-                                            ->default(300)
                                             ->minValue(10)
                                             ->maxValue(600)
-                                            ->helperText('Максимальное время на обход сайта'),
+                                            ->helperText('Максимальное время на обход сайта')
+                                            ->afterStateHydrated(function (Forms\Components\TextInput $component, mixed $state): void {
+                                                if (blank($state)) {
+                                                    $component->state(300);
+                                                }
+                                            }),
+                                        Forms\Components\TextInput::make('settings.max_crawl_depth')
+                                            ->label('Макс. глубина обхода')
+                                            ->numeric()
+                                            ->minValue(1)
+                                            ->maxValue(50)
+                                            ->helperText('Максимальная глубина BFS-обхода от главной страницы')
+                                            ->afterStateHydrated(function (Forms\Components\TextInput $component, mixed $state): void {
+                                                if (blank($state)) {
+                                                    $component->state(5);
+                                                }
+                                            }),
                                         Forms\Components\TextInput::make('settings.sitemap_url')
                                             ->label('Путь к sitemap')
-                                            ->default('/sitemap.xml')
-                                            ->helperText('Относительный путь от корня сайта'),
+                                            ->helperText('Относительный путь от корня сайта')
+                                            ->afterStateHydrated(function (Forms\Components\TextInput $component, mixed $state): void {
+                                                if (blank($state)) {
+                                                    $component->state('/sitemap.xml');
+                                                }
+                                            }),
                                         Forms\Components\TextInput::make('settings.check_concurrency')
                                             ->label('Параллельные запросы')
                                             ->numeric()
-                                            ->default(10)
                                             ->minValue(1)
                                             ->maxValue(50)
-                                            ->helperText('Количество одновременных HEAD-запросов при проверке URL'),
+                                            ->helperText('Количество одновременных HEAD-запросов при проверке URL')
+                                            ->afterStateHydrated(function (Forms\Components\TextInput $component, mixed $state): void {
+                                                if (blank($state)) {
+                                                    $component->state(10);
+                                                }
+                                            }),
                                     ])
                                     ->visible(fn (Get $get): bool => $get('test_type') === 'sitemap')
                                     ->columns(2)
-                                    ->compact(),
+                                    ->compact()
+                                    ->columnSpanFull(),
                             ])
+                            ->columns(2)
                             ->defaultItems(0)
                             ->itemLabel(fn (array $state): ?string => app(TestService::class)->getTest($state['test_type'] ?? '')?->getName()
                             )
@@ -166,16 +203,20 @@ class SiteResource extends Resource
                             ->options(fn () => TelegramChat::pluck('title', 'id'))
                             ->placeholder('Не выбрана')
                             ->searchable()
-                            ->helperText('Добавьте бота @pingwise_bot в группу и в течение 5 минут он появится в этом списке'),
+                            ->helperText('Добавьте бота @pingwise_bot в группу и в течение 5 минут он появится в этом списке')
+                            ->columnSpanFull(),
                         Forms\Components\Toggle::make('notification_settings.alerts_enabled')
                             ->label('Алерты при смене статуса')
                             ->helperText('Отправлять уведомление при изменении статуса теста')
-                            ->default(false),
+                            ->default(false)
+                            ->inline(false),
                         Forms\Components\Toggle::make('notification_settings.summary_enabled')
                             ->label('Ежесуточное саммари')
                             ->helperText('Отправлять сводку по всем тестам каждый день в 09:00')
-                            ->default(false),
+                            ->default(false)
+                            ->inline(false),
                     ])
+                    ->columns(2)
                     ->visible($canEditTelegram)
                     ->visibleOn('edit')
                     ->collapsible()

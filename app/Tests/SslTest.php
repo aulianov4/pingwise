@@ -48,7 +48,7 @@ class SslTest extends BaseTest
                         'is_valid' => false,
                         'error' => 'connection_failed',
                     ],
-                    'message' => 'Не удалось получить SSL сертификат',
+                    'message' => 'Не удалось получить SSL сертификат: нет ответа по TLS после нескольких попыток',
                 ];
             }
 
