@@ -68,4 +68,31 @@ class SiteResourceTest extends TestCase
 
         $this->assertCount(0, $sites);
     }
+
+    public function test_site_list_query_eager_loads_availability_and_latest_result(): void
+    {
+        $project = Project::factory()->create();
+        $user = User::factory()->superadmin()->create();
+        $site = Site::factory()->createQuietly([
+            'user_id' => $user->id,
+            'project_id' => $project->id,
+        ]);
+        TestResult::factory()->availability()->create([
+            'site_id' => $site->id,
+            'value' => [
+                'status_code' => 200,
+                'response_time_ms' => 120,
+                'is_up' => true,
+                'incident_down' => false,
+            ],
+        ]);
+
+        $this->actingAs($user);
+        $loaded = SiteResource::getEloquentQuery()->get()->first();
+
+        $this->assertTrue($loaded->relationLoaded('latestTestResult'));
+        $this->assertTrue($loaded->relationLoaded('latestAvailabilityResult'));
+        $this->assertSame(120, $loaded->latestAvailabilityResult?->responseTimeMs());
+        $this->assertFalse($loaded->latestAvailabilityResult?->isAvailabilityIncidentDown());
+    }
 }

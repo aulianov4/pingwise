@@ -11,9 +11,9 @@
                         default => '#9ca3af',
                     };
                     $statusLabel = match($result['status'] ?? null) {
-                        'success' => 'Успешно',
+                        'success' => $result['type'] === 'availability' ? 'Работает' : 'Успешно',
                         'warning' => 'Предупреждение',
-                        'failed' => 'Ошибка',
+                        'failed' => $result['type'] === 'availability' ? 'Недоступен' : 'Ошибка',
                         default => null,
                     };
                     $badgeBg = match($result['status'] ?? null) {
@@ -55,6 +55,12 @@
 
                     {{-- Тело карточки --}}
                     <div style="padding: 0.75rem 1rem;">
+                        @if(! empty($result['ping_ms']))
+                            <p style="font-size: 1.125rem; font-weight: 600; color: #111827; margin: 0 0 0.5rem;">
+                                {{ $result['ping_ms'] }} мс
+                            </p>
+                        @endif
+
                         @if($result['message'])
                             <p style="font-size: 0.875rem; color: #4b5563; margin: 0;">{{ $result['message'] }}</p>
                         @endif
@@ -62,6 +68,9 @@
                         @if($result['value'] && is_array($result['value']))
                             <div style="display: flex; flex-wrap: wrap; gap: 0.25rem 1rem; margin-top: 0.5rem;">
                                 @foreach($result['value'] as $key => $val)
+                                    @if(in_array($key, ['incident_down', 'window_failures', 'window_size', 'is_up', 'attempts'], true))
+                                        @continue
+                                    @endif
                                     @if(! is_array($val) && ! is_null($val))
                                         <span style="font-size: 0.75rem; color: #6b7280;">
                                             <span style="font-weight: 500;">{{ str_replace('_', ' ', ucfirst($key)) }}:</span>

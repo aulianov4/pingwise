@@ -1,62 +1,76 @@
 # PingWise
 
-Сервис мониторинга доступности сайтов, проверки SSL-сертификатов и регистрации доменов. Админ-панель на Filament v5, уведомления в Telegram.
+Сервис мониторинга доступности сайтов, SSL-сертификатов и регистрации доменов. Админ-панель на Filament v5, уведомления в Telegram. Стек: PHP 8.3, Laravel 13.
+
+Пользовательская документация — в [README.md](README.md).
 
 ## Architecture Overview
 
 ```
 app/
-├── Console/Commands/       # Artisan-команды (pingwise:*)
-├── DTO/                    # Data Transfer Objects (TestResultData)
+├── Console/Commands/       # pingwise:check, cleanup, init-tests, telegram:poll, telegram:set-webhook, notifications:summary
+├── DTO/                    # TestResultData
+├── Enums/                  # ProjectRole, NotificationChannelType, SummaryPeriod, Role
 ├── Events/                 # TestStatusChanged
-├── Filament/               # Админ-панель (Resources, Widgets, Pages)
-├── Listeners/              # SendTelegramAlert
-├── Models/                 # Site, SiteTest, TestResult, TelegramChat, User
+├── Filament/               # Resources (Projects, Sites, NotificationChannels, TestResults, Users), Widgets, Pages
+├── Http/Controllers/       # TelegramWebhookController (CSRF except telegram/webhook/*)
+├── Listeners/              # SendTestAlert (auto-discovered, ShouldQueue)
+├── Models/                 # User, Project, Site, SiteTest, TestResult, NotificationChannel, SiteTestNotificationChannel, TelegramChat, AuditPage
 ├── Observers/              # SiteObserver — инициализация тестов при создании сайта
-├── Providers/              # AppServiceProvider (DI-биндинги), AdminPanelProvider
+├── Policies/               # ProjectPolicy, SitePolicy, UserPolicy, NotificationChannelPolicy
+├── Providers/              # AppServiceProvider (DI), AdminPanelProvider
 ├── Services/
-│   ├── Sitemap/            # SitemapParserInterface → SitemapParser, SitemapCheckerInterface → SitemapChecker,
-│   │                       #   SiteCrawlerInterface → SiteCrawler, UrlNormalizer
+│   ├── Availability/       # AvailabilityIncidentEvaluator — окно 3/5 для инцидента
+│   ├── Notifications/      # NotificationChannelDriver, TelegramChannelDriver, ChannelDriverRegistry, NotificationDispatcher
+│   ├── Sitemap/            # Parser/Checker/Crawler (код живой, тест не зарегистрирован)
 │   ├── Ssl/                # SslCheckerInterface → SslChecker
-│   ├── Telegram/           # TelegramBotInterface → TelegramBotService, TelegramMessageFormatter
+│   ├── Telegram/           # TelegramBotInterface → TelegramBotService (proxy + api_base_url), TelegramConnectService, TelegramMessageFormatter
 │   ├── Whois/              # WhoisClientInterface → WhoisClient, WhoisParser
-│   ├── TestRegistry.php    # Реестр тестов (tagged bindings)
-│   └── TestService.php     # Оркестрация: запуск тестов, сохранение результатов, события
-└── Tests/                  # Доменные тесты (НЕ PHPUnit), НЕ путать с tests/
-    ├── TestInterface.php        # extends TestMetadataInterface + run()
-    ├── TestMetadataInterface.php # getType(), getName(), getDefaultInterval()
-    ├── BaseTest.php             # Абстрактный базовый класс с execute() + error handling
-    ├── AvailabilityTest.php     # HTTP-проверка (Http::fake в тестах)
-    ├── SslTest.php              # SSL-сертификат через SslCheckerInterface
-    ├── DomainTest.php           # WHOIS через WhoisClientInterface
-    └── SitemapAuditTest.php     # Аудит sitemap через SitemapParser/Checker/Crawler
+│   ├── TestRegistry.php    # tagged 'site_tests'
+│   └── TestService.php     # запуск, сохранение, инцидент availability, события
+└── Tests/                  # доменные проверки, НЕ PHPUnit (они в tests/)
+    ├── TestInterface.php / TestMetadataInterface.php / BaseTest.php
+    ├── AvailabilityTest.php     # один HTTP GET, пинг в value.response_time_ms
+    ├── SslTest.php
+    ├── DomainTest.php
+    └── SitemapAuditTest.php     # не в tag site_tests
 ```
 
 ## Domain Model
 
 ```
-User → hasMany → Site → hasMany → SiteTest (тип + настройки теста)
-                     → hasMany → TestResult (результат проверки)
-                     → belongsTo → TelegramChat (уведомления)
-                     → hasMany → AuditPage (текущее состояние URL из аудита sitemap)
+User → belongsToMany → Project (pivot role: admin|observer)
+Project → hasMany → Site
+        → hasMany → NotificationChannel (type telegram, connect_token, telegram_chat_id)
+Site → hasMany → SiteTest (тип + settings.interval_minutes + is_enabled)
+     → hasMany → TestResult
+     → hasMany → AuditPage (остаток sitemap-аудита)
+SiteTest → belongsToMany NotificationChannel
+           через site_test_notification_channel (alerts, daily_summary, weekly_summary, monthly_summary)
 ```
 
-- `Site.notification_settings` (array cast): `alerts_enabled`, `summary_enabled`
-- `SiteTest.settings` (array cast): `interval_minutes`
-- `TestResult.value` (array cast): структура зависит от типа теста; для `sitemap` — только агрегатные счётчики
-- `AuditPage`: текущее состояние каждого URL — обновляется upsert при каждом прогоне `SitemapAuditTest`
-- Статусы результатов: `success`, `warning`, `failed`
-- Типы тестов: `availability`, `ssl`, `domain`, `sitemap`
+- Роли: суперадмин (`User.isSuperadmin()`), админ проекта, наблюдатель.
+- `TestResult.status` — статус **пробы** (`success` / `warning` / `failed`).
+- Для `availability` в `value` из `execute()`: `status_code`, `response_time_ms`, `is_up`. Поля `incident_down`, `window_failures`, `window_size` дописывает `TestService` после оценки окна.
+- Инцидент доступности: ≥ 3 неудачных пробы в последних 5 (неполное окно тоже считается). Бейдж сайта и алерт — по `incident_down`, график пинга — по `response_time_ms`.
+- `Site.latestTestResult()` (любой тип, `latestOfMany`) и `Site.latestAvailabilityResult()` (`ofMany` + `test_type=availability`) — **оба** нужны. Список сайтов грузит оба; удаление `latestTestResult` даёт 500.
+- Типы тестов в реестре: `availability`, `ssl`, `domain`. `sitemap` отключён.
+- Код `/connect` живёт 30 минут (`NotificationChannel::CONNECT_TOKEN_TTL_MINUTES`).
+
+## Availability incident
+
+`AvailabilityIncidentEvaluator`: окно 5, порог 3.
+
+`TestService::runTest()` для `availability` диспатчит `TestStatusChanged` только если `incident_down` изменился. Для ssl/domain — как раньше, при смене `status`. `SendTestAlert` не шлёт при `previousResult === null`.
 
 ## Adding a New Test Type
 
-Следует паттерну OCP — добавление без изменения существующего кода:
+OCP — без правок оркестратора:
 
-1. Создать класс в `app/Tests/`, расширяющий `BaseTest` — реализовать `getType()`, `getName()`, `getDefaultInterval()`, `execute(Site $site): array`
-2. Зарегистрировать в `AppServiceProvider::register()` — добавить в `$this->app->tag([...], 'site_tests')`
-3. Готово — `TestRegistry` подхватит через tagged bindings, `TestService::initializeTestsForSite()` создаст `SiteTest` запись
+1. Класс в `app/Tests/`, extends `BaseTest`: `getType()`, `getName()`, `getDefaultInterval()`, `execute(Site $site): array`
+2. Добавить в `$this->app->tag([...], 'site_tests')` в `AppServiceProvider::register()`
+3. `TestRegistry` и `TestService::initializeTestsForSite()` подхватят сами
 
-Пример возврата из `execute()`:
 ```php
 return [
     'status' => $this->determineStatus($isSuccess, $isWarning),
@@ -65,67 +79,66 @@ return [
 ];
 ```
 
+Новый канал уведомлений: класс `NotificationChannelDriver` + строка в tag `notification_channel_drivers`.
+
 ## Dependency Injection
 
-Все биндинги в `AppServiceProvider::register()`:
-- `WhoisClientInterface` → `WhoisClient` (bind)
-- `SslCheckerInterface` → `SslChecker` (bind)
-- `SitemapParserInterface` → `SitemapParser` (bind)
-- `SitemapCheckerInterface` → `SitemapChecker` (bind)
-- `SiteCrawlerInterface` → `SiteCrawler` (bind)
-- `TelegramBotInterface` → `TelegramBotService` (singleton, принимает `config('services.telegram.bot_token')`)
-- `TestRegistry` — singleton, получает тесты через `$app->tagged('site_tests')`
-- `TestService` — singleton, зависит от `TestRegistry` и `Dispatcher`
-- Тесты (`AvailabilityTest`, `SslTest`, `DomainTest`, `SitemapAuditTest`) зарегистрированы через `$this->app->tag()`
+В `AppServiceProvider::register()`:
+
+- `WhoisClientInterface` → `WhoisClient`
+- `SslCheckerInterface` → `SslChecker`
+- `SitemapParserInterface` / `SitemapCheckerInterface` / `SiteCrawlerInterface`
+- `TelegramBotInterface` → `TelegramBotService` (token, `api_base_url`, optional `proxy`)
+- `TestRegistry` — tagged `site_tests` (`AvailabilityTest`, `SslTest`, `DomainTest`)
+- `TestService` — `TestRegistry`, `Dispatcher`, `AvailabilityIncidentEvaluator`
+- `ChannelDriverRegistry` — tagged `notification_channel_drivers` (`TelegramChannelDriver`)
+- `NotificationDispatcher`, `TelegramConnectService`
 
 ## Event Flow
 
-`TestService::runTest()` → сохраняет `TestResult` → при смене статуса диспатчит `TestStatusChanged` → `SendTelegramAlert` отправляет в Telegram (если `Site.isTelegramAlertsEnabled()`)
+`TestService::runTest()` → `TestResult` → при смене статуса/инцидента `TestStatusChanged` → `SendTestAlert` → `NotificationDispatcher` (драйвер канала). Не дублировать `Event::listen` — слушатель auto-discovered.
+
+## Telegram (РФ)
+
+Исходящий Bot API: `config('services.telegram.api_base_url')` и/или `proxy`. Входящие `/connect`: `pingwise:telegram:poll` (getUpdates, offset в кэше `telegram.update_offset`). HTTP 409 → `deleteWebhook` и повтор getUpdates. Webhook `POST /telegram/webhook/{secret}` (CSRF except) может не доходить из-за блокировок. Парсер: `/connect PW-XXXX`, `/connect@bot PW-XXXX`, `@bot /connect PW-XXXX`. Группы/каналы, права админа боту не обязательны.
 
 ## Artisan Commands
 
 | Команда | Описание |
 |---------|----------|
-| `pingwise:check` | Запуск проверок (`--site=ID --test=TYPE` или все запланированные) |
-| `pingwise:cleanup` | Удаление результатов старше года |
-| `pingwise:init-tests` | Инициализация тестов для сайта (`--site=ID` или всех) |
-| `pingwise:telegram:sync` | Синхронизация Telegram-групп бота |
-| `pingwise:telegram:summary` | Ежесуточное саммари в Telegram |
+| `pingwise:check` | Проверки (`--site=ID --test=TYPE` или все запланированные) |
+| `pingwise:cleanup` | Результаты старше года |
+| `pingwise:init-tests` | `SiteTest` для сайта или всех |
+| `pingwise:telegram:poll` | getUpdates /connect |
+| `pingwise:telegram:set-webhook` | setWebhook на `APP_URL` |
+| `pingwise:notifications:summary` | `--period=daily\|weekly\|monthly` |
 
-Расписание (`routes/console.php`): `check` — каждые 5 мин, `cleanup` — 03:00, `telegram:sync` — каждые 5 мин, `telegram:summary` — 09:00.
+Расписание (`routes/console.php`): `check` каждые 5 мин, `telegram:poll` каждую минуту, `cleanup` 03:00, саммари 09:00 (daily / weekly пн / monthly 1-е).
+
+Команды: в проде `php artisan`; если есть DDEV — `ddev artisan`. То же для pint/composer/npm.
 
 ## Filament Admin Panel
 
-- Путь: `/admin`, login required
-- `SiteResource` — CRUD сайтов с inline-редактированием тестов (Repeater) и Telegram-настройками; данные скоупятся по `Auth::id()`
-- `TestResultResource` — read-only список результатов; скоупится через `Site.user_id`
-- Виджеты: `StatsOverviewWidget`, `UptimeChartWidget`, `TestResultsOverviewWidget`
-- Dashboard: кастомный `App\Filament\Pages\Dashboard`
+- `/admin`, dashboard: `App\Filament\Pages\Dashboard`
+- `ProjectResource`, `SiteResource` (тесты + вложенные каналы, без блока Telegram на сайте), `NotificationChannelResource`, `TestResultResource`, `UserResource`
+- Repeater тестов скрывает `sitemap` (`where('test_type', '!=', 'sitemap')`); поля sitemap в форме ещё есть, но не показываются
+- Скоуп: `User::accessibleProjectIds()`, суперадмин без фильтра
+- Виджеты: `StatsOverviewWidget`, `UptimeChartWidget` (пинг, мс), `TestResultsOverviewWidget`
 
-## Known Gaps
+## Pitfalls
 
-- ~~**Фабрики**: существует только `UserFactory`. Для `Site`, `SiteTest`, `TestResult` фабрик нет~~ — ✅ Созданы фабрики для всех моделей
-- ~~**Тесты (PHPUnit)**: только заглушки `ExampleTest`~~ — ✅ 117 тестов покрывают модели, сервисы, доменные тесты, команды и Filament
-- ~~`TelegramChat` не использует `HasFactory`~~ — ✅ Исправлено
-
-## DDEV Environment
-
-Проект работает в DDEV-окружении. **Все команды** должны запускаться через `ddev`:
-
-| Вместо | Используй |
-|--------|-----------|
-| `php artisan ...` | `ddev artisan ...` |
-| `vendor/bin/pint ...` | `ddev pint ...` |
-| `composer ...` | `ddev composer ...` |
-| `npm ...` | `ddev npm ...` |
+- Кнопка «Новый код» на канале: `action(fn (NotificationChannel $record) => $record->issueConnectToken())`. **Не** вызывать `$livewire->fillForm()` — в Filament v5 это 500.
+- Не регистрировать `SitemapAuditTest` в `site_tests`, пока аудит не починен.
+- Алерты в очереди (`SendTestAlert` implements `ShouldQueue`). Без `queue:work` (и при `QUEUE_CONNECTION=database`) сообщения не уйдут.
+- Блок Boost ниже (`---` и дальше) не править вручную.
 
 ## Conventions
 
-- UI-строки и сообщения — на русском языке
-- SOLID-принципы применяются явно (SRP, OCP, DIP, ISP, LSP) — см. PHPDoc-блоки в сервисах
-- `app/Tests/` — доменная логика проверок, **НЕ** PHPUnit-тесты (они в `tests/`)
-- Модели используют `$casts` property (не метод `casts()`), кроме `User` который использует метод `casts()`
-- `Site` scoping в Filament: все запросы фильтруются по `Auth::id()` в `getEloquentQuery()`
+- UI и сообщения — на русском
+- SOLID явно (SRP, OCP, DIP) — PHPDoc в сервисах
+- `app/Tests/` ≠ `tests/`
+- Модели: `$casts` property, кроме `User` (`casts()`)
+- Секреты (токен бота, webhook secret) не писать в ответы и не коммитить `.env`
 
 ---
 

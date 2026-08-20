@@ -8,16 +8,6 @@ use Illuminate\Support\Facades\Http;
 
 class AvailabilityTest extends BaseTest
 {
-    /**
-     * Максимальное количество попыток подключения перед объявлением провала.
-     */
-    private const MAX_ATTEMPTS = 3;
-
-    /**
-     * Задержка между повторными попытками (мс).
-     */
-    private const RETRY_DELAY_MS = 500;
-
     public function getType(): string
     {
         return 'availability';
@@ -30,49 +20,23 @@ class AvailabilityTest extends BaseTest
 
     public function getDefaultInterval(): int
     {
-        return 5; // 5 минут
+        return 5;
     }
-
-    /**
-     * Коды ответов сервера, при которых выполняется повторная попытка.
-     *
-     * @var list<int>
-     */
-    private const RETRYABLE_STATUS_CODES = [500, 502, 503, 504];
 
     protected function execute(Site $site): array
     {
         $startTime = microtime(true);
-        $lastException = null;
-        $response = null;
 
-        for ($attempt = 1; $attempt <= self::MAX_ATTEMPTS; $attempt++) {
-            $lastException = null;
-            $response = null;
+        try {
+            $response = Http::timeout(10)
+                ->withOptions([
+                    'allow_redirects' => true,
+                    'verify' => false,
+                ])
+                ->get($site->url);
+        } catch (ConnectionException $e) {
+            $responseTime = (int) round((microtime(true) - $startTime) * 1000);
 
-            if ($attempt > 1) {
-                usleep(self::RETRY_DELAY_MS * 1000);
-            }
-
-            try {
-                $response = Http::timeout(10)
-                    ->withOptions([
-                        'allow_redirects' => true,
-                        'verify' => false,
-                    ])
-                    ->get($site->url);
-
-                if (! in_array($response->status(), self::RETRYABLE_STATUS_CODES, true)) {
-                    break;
-                }
-            } catch (ConnectionException $e) {
-                $lastException = $e;
-            }
-        }
-
-        $responseTime = round((microtime(true) - $startTime) * 1000);
-
-        if ($lastException !== null) {
             return [
                 'status' => 'failed',
                 'value' => [
@@ -80,22 +44,18 @@ class AvailabilityTest extends BaseTest
                     'response_time_ms' => $responseTime,
                     'is_up' => false,
                     'error' => 'connection_error',
-                    'attempts' => $attempt,
                 ],
-                'message' => "Ошибка подключения после {$attempt} попыток: ".$lastException->getMessage(),
+                'message' => 'Ошибка подключения: '.$e->getMessage(),
             ];
         }
 
+        $responseTime = (int) round((microtime(true) - $startTime) * 1000);
         $statusCode = $response->status();
         $isUp = $statusCode >= 200 && $statusCode < 400;
 
         $message = $isUp
-            ? "Сайт доступен. Код ответа: {$statusCode}, время отклика: {$responseTime}мс"
-            : "Сайт недоступен. Код ответа: {$statusCode}";
-
-        if ($attempt > 1) {
-            $message .= " (попытка {$attempt} из ".self::MAX_ATTEMPTS.')';
-        }
+            ? "Сайт доступен. Код ответа: {$statusCode}, время отклика: {$responseTime} мс"
+            : "Сайт недоступен. Код ответа: {$statusCode}, время отклика: {$responseTime} мс";
 
         return [
             'status' => $this->determineStatus($isUp),
@@ -103,7 +63,6 @@ class AvailabilityTest extends BaseTest
                 'status_code' => $statusCode,
                 'response_time_ms' => $responseTime,
                 'is_up' => $isUp,
-                'attempts' => $attempt,
             ],
             'message' => $message,
         ];

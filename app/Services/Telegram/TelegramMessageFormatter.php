@@ -34,12 +34,32 @@ class TelegramMessageFormatter
         $oldStatus = $previous ? $this->getStatusLabel($previous->status) : '—';
         $newStatus = $this->getStatusLabel($current->status);
 
+        if ($current->test_type === 'availability') {
+            $down = $current->isAvailabilityIncidentDown();
+            $emoji = $down ? '🔴' : '✅';
+            $oldStatus = $previous === null
+                ? '—'
+                : ($previous->isAvailabilityIncidentDown() ? 'Недоступен' : 'Работает');
+            $newStatus = $down ? 'Недоступен' : 'Работает';
+        }
+
         $lines = [
             "{$emoji} <b>{$site->name}</b>",
             '',
             "Тест: <b>{$testName}</b>",
             "Статус: {$oldStatus} → <b>{$newStatus}</b>",
         ];
+
+        if ($current->test_type === 'availability') {
+            $failures = (int) ($current->value['window_failures'] ?? 0);
+            $window = (int) ($current->value['window_size'] ?? 0);
+            $ping = $current->responseTimeMs();
+            $lines[] = "Пробы: {$failures} неудачных из {$window}";
+
+            if ($ping !== null) {
+                $lines[] = "Пинг последней проверки: {$ping} мс";
+            }
+        }
 
         if ($current->message) {
             $lines[] = '';

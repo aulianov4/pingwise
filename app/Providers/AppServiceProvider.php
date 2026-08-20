@@ -4,6 +4,7 @@ namespace App\Providers;
 
 use App\Models\Site;
 use App\Observers\SiteObserver;
+use App\Services\Availability\AvailabilityIncidentEvaluator;
 use App\Services\Notifications\ChannelDriverRegistry;
 use App\Services\Notifications\NotificationDispatcher;
 use App\Services\Notifications\TelegramChannelDriver;
@@ -71,6 +72,7 @@ class AppServiceProvider extends ServiceProvider
             return new TestService(
                 $app->make(TestRegistry::class),
                 $app->make(Dispatcher::class),
+                $app->make(AvailabilityIncidentEvaluator::class),
             );
         });
 

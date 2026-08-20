@@ -15,7 +15,7 @@ class UptimeChartWidget extends ChartWidget
 
     public ?string $filter = 'week';
 
-    protected ?string $heading = 'Аптайм сайта';
+    protected ?string $heading = 'Время отклика';
 
     protected ?string $maxHeight = '300px';
 
@@ -67,37 +67,39 @@ class UptimeChartWidget extends ChartWidget
         // Группируем результаты по периодам
         $grouped = [];
         foreach ($periods as $periodKey) {
-            $grouped[$periodKey] = ['total' => 0, 'success' => 0];
+            $grouped[$periodKey] = ['total' => 0, 'sum_ms' => 0, 'count_ms' => 0];
         }
 
         foreach ($results as $result) {
             $key = $result->checked_at->format($groupFormat);
             if (isset($grouped[$key])) {
                 $grouped[$key]['total']++;
-                if ($result->status === 'success') {
-                    $grouped[$key]['success']++;
+                $ms = $result->responseTimeMs();
+
+                if ($ms !== null) {
+                    $grouped[$key]['sum_ms'] += $ms;
+                    $grouped[$key]['count_ms']++;
                 }
             }
         }
 
-        // Вычисляем процент аптайма для каждого периода
         $labels = [];
-        $uptimeData = [];
+        $pingData = [];
 
         foreach ($grouped as $periodKey => $data) {
             $labels[] = Carbon::createFromFormat($groupFormat, $periodKey)->format($labelFormat);
-            $uptimeData[] = $data['total'] > 0
-                ? round(($data['success'] / $data['total']) * 100, 1)
+            $pingData[] = $data['count_ms'] > 0
+                ? (int) round($data['sum_ms'] / $data['count_ms'])
                 : null;
         }
 
         return [
             'datasets' => [
                 [
-                    'label' => 'Аптайм (%)',
-                    'data' => $uptimeData,
-                    'borderColor' => '#10b981',
-                    'backgroundColor' => 'rgba(16, 185, 129, 0.1)',
+                    'label' => 'Пинг (мс)',
+                    'data' => $pingData,
+                    'borderColor' => '#3b82f6',
+                    'backgroundColor' => 'rgba(59, 130, 246, 0.1)',
                     'fill' => true,
                     'tension' => 0.3,
                     'spanGaps' => true,
@@ -113,16 +115,15 @@ class UptimeChartWidget extends ChartWidget
             'scales' => [
                 'y' => [
                     'min' => 0,
-                    'max' => 100,
                     'ticks' => [
-                        'callback' => '(value) => value + "%"',
+                        'callback' => '(value) => value + " мс"',
                     ],
                 ],
             ],
             'plugins' => [
                 'tooltip' => [
                     'callbacks' => [
-                        'label' => '(context) => context.parsed.y + "%"',
+                        'label' => '(context) => context.parsed.y + " мс"',
                     ],
                 ],
             ],

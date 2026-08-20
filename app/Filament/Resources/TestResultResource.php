@@ -104,6 +104,13 @@ class TestResultResource extends Resource
                         'warning' => 'warning',
                         default => 'gray',
                     }),
+                Tables\Columns\TextColumn::make('ping')
+                    ->label('Пинг')
+                    ->state(fn (TestResult $record): ?string => $record->test_type === 'availability' && $record->responseTimeMs() !== null
+                        ? $record->responseTimeMs().' мс'
+                        : null
+                    )
+                    ->placeholder('—'),
                 Tables\Columns\TextColumn::make('message')
                     ->label('Сообщение')
                     ->limit(50)

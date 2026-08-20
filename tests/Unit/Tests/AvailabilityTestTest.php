@@ -76,6 +76,7 @@ class AvailabilityTestTest extends TestCase
         $this->assertEquals('failed', $result->status);
         $this->assertEquals(500, $result->value['status_code']);
         $this->assertFalse($result->value['is_up']);
+        Http::assertSentCount(1);
     }
 
     public function test_connection_error_returns_failed(): void
@@ -93,6 +94,7 @@ class AvailabilityTestTest extends TestCase
         $this->assertNull($result->value['status_code']);
         $this->assertFalse($result->value['is_up']);
         $this->assertEquals('connection_error', $result->value['error']);
+        $this->assertArrayHasKey('response_time_ms', $result->value);
     }
 
     public function test_metadata(): void

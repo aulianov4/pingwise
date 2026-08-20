@@ -33,10 +33,19 @@ class TestResultFactory extends Factory
      */
     public function failed(): static
     {
-        return $this->state(fn (array $attributes) => [
-            'status' => 'failed',
-            'message' => 'Тест завершился с ошибкой',
-        ]);
+        return $this->state(function (array $attributes) {
+            $value = is_array($attributes['value'] ?? null) ? $attributes['value'] : [];
+
+            if (($attributes['test_type'] ?? null) === 'availability' || array_key_exists('is_up', $value)) {
+                $value['is_up'] = false;
+            }
+
+            return [
+                'status' => 'failed',
+                'message' => 'Тест завершился с ошибкой',
+                'value' => $value === [] ? ($attributes['value'] ?? null) : $value,
+            ];
+        });
     }
 
     /**

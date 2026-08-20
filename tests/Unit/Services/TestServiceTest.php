@@ -2,6 +2,7 @@
 
 namespace Tests\Unit\Services;
 
+use App\Events\TestStatusChanged;
 use App\Models\Site;
 use App\Models\SiteTest;
 use App\Models\TestResult;
@@ -11,6 +12,8 @@ use App\Tests\AvailabilityTest;
 use App\Tests\DomainTest;
 use App\Tests\SslTest;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
 
 class TestServiceTest extends TestCase
@@ -168,5 +171,77 @@ class TestServiceTest extends TestCase
             'site_id' => $site->id,
             'test_type' => 'sitemap',
         ]);
+    }
+
+    public function test_availability_does_not_dispatch_on_single_failure(): void
+    {
+        Event::fake([TestStatusChanged::class]);
+        $this->app->forgetInstance(TestService::class);
+        Http::fake([
+            '*' => Http::response('err', 500),
+        ]);
+
+        $site = Site::factory()->createQuietly(['url' => 'https://example.com']);
+        $result = $this->app->make(TestService::class)->runTest($site, 'availability');
+
+        $this->assertFalse($result->value['is_up']);
+        $this->assertFalse($result->value['incident_down']);
+        $this->assertSame(1, $result->value['window_failures']);
+        Event::assertNotDispatched(TestStatusChanged::class);
+    }
+
+    public function test_availability_dispatches_when_three_of_five_fail(): void
+    {
+        Event::fake([TestStatusChanged::class]);
+        $this->app->forgetInstance(TestService::class);
+        Http::fake([
+            '*' => Http::response('err', 500),
+        ]);
+
+        $site = Site::factory()->createQuietly(['url' => 'https://example.com']);
+
+        foreach ([20, 10] as $minutesAgo) {
+            TestResult::factory()->availability()->failed()->create([
+                'site_id' => $site->id,
+                'checked_at' => now()->subMinutes($minutesAgo),
+            ]);
+        }
+
+        $result = $this->app->make(TestService::class)->runTest($site, 'availability');
+
+        $this->assertTrue($result->value['incident_down']);
+        $this->assertSame(3, $result->value['window_failures']);
+        Event::assertDispatched(TestStatusChanged::class);
+    }
+
+    public function test_availability_dispatches_recovery_when_failures_drop_below_three(): void
+    {
+        Event::fake([TestStatusChanged::class]);
+        $this->app->forgetInstance(TestService::class);
+        Http::fake([
+            '*' => Http::response('OK', 200),
+        ]);
+
+        $site = Site::factory()->createQuietly(['url' => 'https://example.com']);
+
+        foreach ([50, 40, 30, 20, 10] as $index => $minutesAgo) {
+            $failed = $index < 3;
+            TestResult::factory()->availability()->when($failed, fn ($factory) => $factory->failed())->create([
+                'site_id' => $site->id,
+                'checked_at' => now()->subMinutes($minutesAgo),
+                'value' => [
+                    'status_code' => $failed ? 500 : 200,
+                    'response_time_ms' => 80,
+                    'is_up' => ! $failed,
+                    'incident_down' => true,
+                ],
+            ]);
+        }
+
+        $result = $this->app->make(TestService::class)->runTest($site, 'availability');
+
+        $this->assertTrue($result->value['is_up']);
+        $this->assertFalse($result->value['incident_down']);
+        Event::assertDispatched(TestStatusChanged::class);
     }
 }

@@ -83,6 +83,17 @@ class Site extends Model
     }
 
     /**
+     * Последний результат проверки доступности.
+     */
+    public function latestAvailabilityResult(): HasOne
+    {
+        return $this->hasOne(TestResult::class)->ofMany(
+            ['checked_at' => 'max', 'id' => 'max'],
+            fn ($query) => $query->where('test_type', 'availability'),
+        );
+    }
+
+    /**
      * Получить результаты конкретного типа теста
      */
     public function testResultsByType(string $testType): HasMany

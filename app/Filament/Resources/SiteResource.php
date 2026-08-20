@@ -264,6 +264,36 @@ class SiteResource extends Resource
                 Tables\Columns\IconColumn::make('is_active')
                     ->label('Активен')
                     ->boolean(),
+                Tables\Columns\TextColumn::make('availability_status')
+                    ->label('Доступность')
+                    ->badge()
+                    ->state(function (Site $record): ?string {
+                        $result = $record->latestAvailabilityResult;
+
+                        if ($result === null) {
+                            return null;
+                        }
+
+                        return $result->isAvailabilityIncidentDown() ? 'failed' : 'success';
+                    })
+                    ->formatStateUsing(fn (?string $state): string => match ($state) {
+                        'success' => 'Работает',
+                        'failed' => 'Недоступен',
+                        default => '—',
+                    })
+                    ->color(fn (?string $state): string => match ($state) {
+                        'success' => 'success',
+                        'failed' => 'danger',
+                        default => 'gray',
+                    }),
+                Tables\Columns\TextColumn::make('ping')
+                    ->label('Пинг')
+                    ->state(function (Site $record): ?string {
+                        $ms = $record->latestAvailabilityResult?->responseTimeMs();
+
+                        return $ms === null ? null : $ms.' мс';
+                    })
+                    ->placeholder('—'),
                 Tables\Columns\TextColumn::make('last_test_status')
                     ->label('Последний статус')
                     ->badge()
@@ -404,7 +434,7 @@ class SiteResource extends Resource
         /** @var User $user */
         $user = Auth::user();
 
-        $query = parent::getEloquentQuery()->with('latestTestResult', 'project');
+        $query = parent::getEloquentQuery()->with('latestTestResult', 'latestAvailabilityResult', 'project');
 
         if ($user->isSuperadmin()) {
             return $query;

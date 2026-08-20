@@ -6,6 +6,7 @@ use App\Events\TestStatusChanged;
 use App\Models\Site;
 use App\Models\SiteTest;
 use App\Models\TestResult;
+use App\Services\Availability\AvailabilityIncidentEvaluator;
 use App\Tests\TestInterface;
 use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Support\Collection;
@@ -22,6 +23,7 @@ class TestService
     public function __construct(
         protected readonly TestRegistry $registry,
         protected readonly Dispatcher $events,
+        protected readonly AvailabilityIncidentEvaluator $availabilityIncidents,
     ) {}
 
     /**
@@ -53,24 +55,35 @@ class TestService
 
         // Получаем предыдущий результат для сравнения статуса
         $previousResult = TestResult::latestForSiteTest($site->id, $testType)->first();
-
-        // Получаем DTO от теста
         $resultData = $test->run($site);
+        $value = $resultData->value;
+        $shouldDispatch = ! $previousResult || $previousResult->status !== $resultData->status;
 
-        // Сохраняем в БД (ответственность сервиса, не теста)
+        if ($testType === 'availability') {
+            $previous = TestResult::latestForSiteTest($site->id, $testType)->limit(5)->get();
+            $previousFailures = $previous
+                ->map(fn (TestResult $result): bool => $this->availabilityIncidents->isProbeFailed($result))
+                ->values()
+                ->all();
+            $currentFailed = $this->availabilityIncidents->isProbeFailedFromValue($value, $resultData->status);
+            $summary = $this->availabilityIncidents->summarize(array_merge([$currentFailed], $previousFailures));
+            $previousSummary = $this->availabilityIncidents->summarize($previousFailures);
+            $value = array_merge(is_array($value) ? $value : [], $summary);
+            $shouldDispatch = $previousSummary['incident_down'] !== $summary['incident_down'];
+        }
+
         $result = TestResult::create([
             'site_id' => $site->id,
             'test_type' => $testType,
             'status' => $resultData->status,
-            'value' => $resultData->value,
+            'value' => $value,
             'message' => $resultData->message,
             'checked_at' => now(),
         ]);
 
         Log::info("Test result: site={$site->id} ({$site->name}), test={$testType}, status={$result->status}, message={$result->message}");
 
-        // Диспатч события при смене статуса
-        if (! $previousResult || $previousResult->status !== $result->status) {
+        if ($shouldDispatch) {
             $this->events->dispatch(new TestStatusChanged($site, $result, $previousResult));
         }
 

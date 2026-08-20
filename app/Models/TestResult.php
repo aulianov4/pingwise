@@ -59,6 +59,24 @@ class TestResult extends Model
     }
 
     /**
+     * Время отклика пробы доступности (мс).
+     */
+    public function responseTimeMs(): ?int
+    {
+        $ms = $this->value['response_time_ms'] ?? null;
+
+        return is_numeric($ms) ? (int) $ms : null;
+    }
+
+    /**
+     * Инцидент доступности по окну проб (только availability).
+     */
+    public function isAvailabilityIncidentDown(): bool
+    {
+        return (bool) ($this->value['incident_down'] ?? false);
+    }
+
+    /**
      * Scope для фильтрации за период
      */
     public function scopeForPeriod($query, string $period)
