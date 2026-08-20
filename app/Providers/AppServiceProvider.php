@@ -27,8 +27,11 @@ use App\Services\Whois\WhoisClientInterface;
 use App\Tests\AvailabilityTest;
 use App\Tests\DomainTest;
 use App\Tests\SslTest;
+use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Contracts\Events\Dispatcher;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\App;
+use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
 
 class AppServiceProvider extends ServiceProvider
@@ -113,5 +116,11 @@ class AppServiceProvider extends ServiceProvider
 
         // Регистрация Observer вместо логики в Site::boot() (SRP, DIP)
         Site::observe(SiteObserver::class);
+
+        RateLimiter::for('server-heartbeat', function (Request $request) {
+            $token = $request->bearerToken();
+
+            return Limit::perMinute(30)->by(is_string($token) && $token !== '' ? $token : $request->ip());
+        });
     }
 }

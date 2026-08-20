@@ -90,6 +90,14 @@ class NotificationChannelResource extends Resource
                             ->helperText('Выключенный канал не получает алерты и саммари')
                             ->default(true)
                             ->inline(false),
+                        Forms\Components\TimePicker::make('summary_time')
+                            ->label('Время саммари')
+                            ->seconds(false)
+                            ->required()
+                            ->default(NotificationChannel::DEFAULT_SUMMARY_TIME)
+                            ->format('H:i')
+                            ->displayFormat('H:i')
+                            ->helperText('По Москве. Сутки — каждый день, неделя — по понедельникам, месяц — 1-го числа.'),
                     ]),
                 Section::make('Привязка Telegram')
                     ->key('telegramBinding')
@@ -144,6 +152,13 @@ class NotificationChannelResource extends Resource
                 Tables\Columns\IconColumn::make('is_enabled')
                     ->label('Включён')
                     ->boolean(),
+                Tables\Columns\TextColumn::make('summary_time')
+                    ->label('Саммари')
+                    ->formatStateUsing(function (?string $state): string {
+                        $time = $state ? substr($state, 0, 5) : NotificationChannel::DEFAULT_SUMMARY_TIME;
+
+                        return $time.' МСК';
+                    }),
                 Tables\Columns\TextColumn::make('connection')
                     ->label('Подключение')
                     ->badge()

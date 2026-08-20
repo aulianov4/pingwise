@@ -25,6 +25,7 @@ class NotificationChannelFactory extends Factory
             'name' => fake()->words(2, true),
             'type' => NotificationChannelType::Telegram,
             'is_enabled' => true,
+            'summary_time' => NotificationChannel::DEFAULT_SUMMARY_TIME,
             'telegram_chat_id' => null,
             'connect_token' => 'PW-'.Str::upper(Str::random(4)),
             'connect_token_expires_at' => now()->addMinutes(NotificationChannel::CONNECT_TOKEN_TTL_MINUTES),

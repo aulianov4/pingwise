@@ -2,6 +2,7 @@
 
 namespace App\Console\Commands;
 
+use App\Models\ServerHeartbeat;
 use App\Models\TestResult;
 use Illuminate\Console\Command;
 
@@ -19,7 +20,7 @@ class CleanupOldResultsCommand extends Command
      *
      * @var string
      */
-    protected $description = 'Удалить результаты тестов старше указанного периода';
+    protected $description = 'Удалить результаты тестов и heartbeat серверов старше указанного периода';
 
     /**
      * Execute the console command.
@@ -32,8 +33,10 @@ class CleanupOldResultsCommand extends Command
         $this->info("Удаление результатов тестов старше {$cutoffDate->format('Y-m-d H:i:s')}...");
 
         $deleted = TestResult::where('checked_at', '<', $cutoffDate)->delete();
+        $deletedHeartbeats = ServerHeartbeat::where('reported_at', '<', $cutoffDate)->delete();
 
         $this->info("Удалено записей: {$deleted}");
+        $this->info("Удалено heartbeat серверов: {$deletedHeartbeats}");
 
         return Command::SUCCESS;
     }

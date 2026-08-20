@@ -150,21 +150,31 @@ class SiteResource extends Resource
                                             })
                                             ->required()
                                             ->distinct()
-                                            ->searchable(),
+                                            ->searchable()
+                                            ->columnSpanFull(),
                                         Forms\Components\Toggle::make('alerts')
                                             ->label('Алерт')
-                                            ->default(false),
+                                            ->default(false)
+                                            ->inline(false),
                                         Forms\Components\Toggle::make('daily_summary')
                                             ->label('Саммари за сутки')
-                                            ->default(false),
+                                            ->default(false)
+                                            ->inline(false),
                                         Forms\Components\Toggle::make('weekly_summary')
                                             ->label('Саммари за неделю')
-                                            ->default(false),
+                                            ->default(false)
+                                            ->inline(false),
                                         Forms\Components\Toggle::make('monthly_summary')
                                             ->label('Саммари за месяц')
-                                            ->default(false),
+                                            ->default(false)
+                                            ->inline(false),
                                     ])
-                                    ->columns(2)
+                                    ->columns([
+                                        'default' => 1,
+                                        'md' => 2,
+                                        'xl' => 4,
+                                    ])
+                                    ->columnSpanFull()
                                     ->defaultItems(0)
                                     ->addActionLabel('Добавить канал')
                                     ->helperText('Пусто — уведомления не отправляются. Каналы добавляются в разделе «Каналы уведомлений».'),

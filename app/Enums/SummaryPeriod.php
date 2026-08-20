@@ -2,6 +2,8 @@
 
 namespace App\Enums;
 
+use Illuminate\Support\Carbon;
+
 enum SummaryPeriod: string
 {
     case Daily = 'daily';
@@ -30,5 +32,27 @@ enum SummaryPeriod: string
             SummaryPeriod::Weekly => 'weekly_summary',
             SummaryPeriod::Monthly => 'monthly_summary',
         };
+    }
+
+    /**
+     * Периоды, которые нужно отправить в этот момент (день недели / число месяца).
+     * Календарь берётся из переданного момента — вызывающий код передаёт московское время.
+     *
+     * @return list<self>
+     */
+    public static function dueAt(\DateTimeInterface $now): array
+    {
+        $now = Carbon::parse($now);
+        $periods = [self::Daily];
+
+        if ($now->isMonday()) {
+            $periods[] = self::Weekly;
+        }
+
+        if ($now->day === 1) {
+            $periods[] = self::Monthly;
+        }
+
+        return $periods;
     }
 }

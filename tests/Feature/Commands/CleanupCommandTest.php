@@ -2,6 +2,8 @@
 
 namespace Tests\Feature\Commands;
 
+use App\Models\Server;
+use App\Models\ServerHeartbeat;
 use App\Models\Site;
 use App\Models\TestResult;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -67,5 +69,25 @@ class CleanupCommandTest extends TestCase
             ->assertSuccessful();
 
         $this->assertDatabaseCount('test_results', 1);
+    }
+
+    public function test_cleanup_deletes_old_server_heartbeats(): void
+    {
+        $server = Server::factory()->create();
+
+        $old = ServerHeartbeat::factory()->create([
+            'server_id' => $server->id,
+            'reported_at' => now()->subYears(2),
+        ]);
+        $fresh = ServerHeartbeat::factory()->create([
+            'server_id' => $server->id,
+            'reported_at' => now()->subDay(),
+        ]);
+
+        $this->artisan('pingwise:cleanup')
+            ->assertSuccessful();
+
+        $this->assertDatabaseMissing('server_heartbeats', ['id' => $old->id]);
+        $this->assertDatabaseHas('server_heartbeats', ['id' => $fresh->id]);
     }
 }

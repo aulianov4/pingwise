@@ -14,6 +14,11 @@ Schedule::command('pingwise:check')
     ->withoutOverlapping()
     ->runInBackground();
 
+Schedule::command('pingwise:servers:check-silence')
+    ->everyFiveMinutes()
+    ->withoutOverlapping()
+    ->runInBackground();
+
 // Очистка старых данных ежедневно в 3:00
 Schedule::command('pingwise:cleanup')
     ->dailyAt('03:00')
@@ -24,15 +29,8 @@ Schedule::command('pingwise:telegram:poll --timeout=25')
     ->withoutOverlapping()
     ->runInBackground();
 
-// Саммари уведомлений по каналам
-Schedule::command('pingwise:notifications:summary --period=daily')
-    ->dailyAt('09:00')
-    ->withoutOverlapping();
-
-Schedule::command('pingwise:notifications:summary --period=weekly')
-    ->weeklyOn(1, '09:00')
-    ->withoutOverlapping();
-
-Schedule::command('pingwise:notifications:summary --period=monthly')
-    ->monthlyOn(1, '09:00')
-    ->withoutOverlapping();
+// Саммари уведомлений: время задаётся на канале (summary_time)
+Schedule::command('pingwise:notifications:summary --due')
+    ->everyMinute()
+    ->withoutOverlapping()
+    ->runInBackground();

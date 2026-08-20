@@ -37,6 +37,16 @@ class Project extends Model
     }
 
     /**
+     * Мониторируемые серверы проекта.
+     *
+     * @return HasMany<Server, $this>
+     */
+    public function servers(): HasMany
+    {
+        return $this->hasMany(Server::class);
+    }
+
+    /**
      * Каналы уведомлений проекта.
      *
      * @return HasMany<NotificationChannel, $this>

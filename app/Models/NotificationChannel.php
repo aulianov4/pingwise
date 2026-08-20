@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Str;
 
 /**
@@ -24,11 +25,16 @@ class NotificationChannel extends Model
 
     public const CONNECT_TOKEN_TTL_MINUTES = 30;
 
+    public const DEFAULT_SUMMARY_TIME = '09:00';
+
+    public const SUMMARY_TIMEZONE = 'Europe/Moscow';
+
     protected $fillable = [
         'project_id',
         'name',
         'type',
         'is_enabled',
+        'summary_time',
         'telegram_chat_id',
         'connect_token',
         'connect_token_expires_at',
@@ -154,5 +160,35 @@ class NotificationChannel extends Model
     public function scopeEnabled(Builder $query): Builder
     {
         return $query->where('is_enabled', true);
+    }
+
+    /**
+     * Текущие дата и время по Москве (для саммари).
+     */
+    public static function summaryNow(?\DateTimeInterface $now = null): Carbon
+    {
+        $now = $now === null ? now() : Carbon::parse($now);
+
+        return $now->copy()->timezone(self::SUMMARY_TIMEZONE);
+    }
+
+    /**
+     * Время саммари в формате HH:MM (московское).
+     */
+    public function summaryTime(): string
+    {
+        $value = is_string($this->summary_time) && $this->summary_time !== ''
+            ? $this->summary_time
+            : self::DEFAULT_SUMMARY_TIME;
+
+        return substr($value, 0, 5);
+    }
+
+    /**
+     * Сейчас время отправки саммари для этого канала (по Москве).
+     */
+    public function isSummaryDue(?\DateTimeInterface $now = null): bool
+    {
+        return $this->summaryTime() === self::summaryNow($now)->format('H:i');
     }
 }

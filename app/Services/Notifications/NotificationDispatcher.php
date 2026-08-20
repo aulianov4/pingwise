@@ -5,9 +5,13 @@ namespace App\Services\Notifications;
 use App\Enums\NotificationChannelType;
 use App\Enums\SummaryPeriod;
 use App\Models\NotificationChannel;
+use App\Models\Server;
+use App\Models\ServerHeartbeat;
+use App\Models\ServerNotificationChannel;
 use App\Models\Site;
 use App\Models\SiteTestNotificationChannel;
 use App\Models\TestResult;
+use App\Services\Servers\ServerSummaryBuilder;
 use App\Services\Telegram\TelegramMessageFormatter;
 use Illuminate\Support\Collection;
 
@@ -20,6 +24,7 @@ class NotificationDispatcher
     public function __construct(
         protected readonly ChannelDriverRegistry $drivers,
         protected readonly TelegramMessageFormatter $formatter,
+        protected readonly ServerSummaryBuilder $serverSummaries,
     ) {}
 
     /**
@@ -46,11 +51,36 @@ class NotificationDispatcher
     }
 
     /**
-     * Отправить саммари периода: одно сообщение на канал.
+     * Отправить алерт о смене статуса сервера.
+     */
+    public function sendServerAlert(Server $server, ServerHeartbeat $current, ServerHeartbeat $previous): void
+    {
+        $message = $this->formatter->formatServerAlert($server, $current, $previous);
+
+        $assignments = $server->notificationChannelAssignments()
+            ->where('alerts', true)
+            ->with('notificationChannel')
+            ->get();
+
+        foreach ($assignments as $assignment) {
+            $this->sendToServerAssignment($assignment, $message);
+        }
+    }
+
+    /**
+     * Отправить саммари периода: сайты и серверы отдельными сообщениями.
      *
      * @return int Количество успешно отправленных сообщений
      */
-    public function sendSummaries(SummaryPeriod $period): int
+    public function sendSummaries(SummaryPeriod $period, ?string $atTime = null): int
+    {
+        return $this->sendSiteSummaries($period, $atTime) + $this->sendServerSummaries($period, $atTime);
+    }
+
+    /**
+     * @return int Количество успешно отправленных сообщений
+     */
+    protected function sendSiteSummaries(SummaryPeriod $period, ?string $atTime = null): int
     {
         $flag = $period->pivotFlag();
 
@@ -61,10 +91,7 @@ class NotificationDispatcher
                 'siteTest.site',
             ])
             ->get()
-            ->filter(fn (SiteTestNotificationChannel $assignment): bool => $assignment->notificationChannel?->is_enabled
-                && $assignment->notificationChannel->isConnected()
-                && $assignment->siteTest?->site !== null
-            );
+            ->filter(fn (SiteTestNotificationChannel $assignment): bool => $this->shouldSendSummary($assignment->notificationChannel, $assignment->siteTest?->site !== null, $atTime));
 
         $sent = 0;
 
@@ -78,6 +105,43 @@ class NotificationDispatcher
 
             $items = $this->buildSummaryItems($channelAssignments, $period);
             $message = $this->formatter->formatChannelSummary($channel, $period, $items);
+
+            if ($this->sendToChannel($channel, $message)) {
+                $sent++;
+            }
+        }
+
+        return $sent;
+    }
+
+    /**
+     * @return int Количество успешно отправленных сообщений
+     */
+    protected function sendServerSummaries(SummaryPeriod $period, ?string $atTime = null): int
+    {
+        $flag = $period->pivotFlag();
+
+        $assignments = ServerNotificationChannel::query()
+            ->where($flag, true)
+            ->with([
+                'notificationChannel.project',
+                'server.latestHeartbeat',
+            ])
+            ->get()
+            ->filter(fn (ServerNotificationChannel $assignment): bool => $this->shouldSendSummary($assignment->notificationChannel, $assignment->server !== null, $atTime));
+
+        $sent = 0;
+
+        foreach ($assignments->groupBy('notification_channel_id') as $channelAssignments) {
+            /** @var Collection<int, ServerNotificationChannel> $channelAssignments */
+            $channel = $channelAssignments->first()?->notificationChannel;
+
+            if ($channel === null) {
+                continue;
+            }
+
+            $items = $this->serverSummaries->items($channelAssignments, $period);
+            $message = $this->formatter->formatServerChannelSummary($channel, $period, $items);
 
             if ($this->sendToChannel($channel, $message)) {
                 $sent++;
@@ -130,7 +194,31 @@ class NotificationDispatcher
         return $items;
     }
 
+    protected function shouldSendSummary(?NotificationChannel $channel, bool $hasTarget, ?string $atTime): bool
+    {
+        if ($channel === null || ! $hasTarget || ! $channel->is_enabled || ! $channel->isConnected()) {
+            return false;
+        }
+
+        if ($atTime === null) {
+            return true;
+        }
+
+        return $channel->summaryTime() === $atTime;
+    }
+
     protected function sendToAssignment(SiteTestNotificationChannel $assignment, string $message): void
+    {
+        $channel = $assignment->notificationChannel;
+
+        if ($channel === null) {
+            return;
+        }
+
+        $this->sendToChannel($channel, $message);
+    }
+
+    protected function sendToServerAssignment(ServerNotificationChannel $assignment, string $message): void
     {
         $channel = $assignment->notificationChannel;
 
