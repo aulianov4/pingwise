@@ -68,7 +68,8 @@ class ProjectResource extends Resource
                             ->minValue(1)
                             ->maxValue(1000)
                             ->helperText('Максимальное количество сайтов в проекте'),
-                    ]),
+                    ])
+                    ->columnSpanFull(),
                 Section::make('Участники проекта')
                     ->schema([
                         Repeater::make('projectUsers')

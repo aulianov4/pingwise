@@ -7,10 +7,16 @@ use App\Filament\Widgets\TestResultsOverviewWidget;
 use App\Filament\Widgets\UptimeChartWidget;
 use Filament\Actions;
 use Filament\Resources\Pages\ViewRecord;
+use Illuminate\Contracts\Support\Htmlable;
 
 class ViewSite extends ViewRecord
 {
     protected static string $resource = SiteResource::class;
+
+    public function getTitle(): string|Htmlable
+    {
+        return $this->getRecord()->name;
+    }
 
     protected function getHeaderActions(): array
     {
