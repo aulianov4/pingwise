@@ -31,5 +31,9 @@
         <env name="PULSE_ENABLED" value="false"/>
         <env name="TELESCOPE_ENABLED" value="false"/>
         <env name="NIGHTWATCH_ENABLED" value="false"/>
+        <env name="TELEGRAM_BOT_TOKEN" value="test-token"/>
+        <env name="TELEGRAM_WEBHOOK_SECRET" value="test-webhook-secret"/>
+        <env name="TELEGRAM_API_BASE_URL" value="https://api.telegram.org"/>
+        <env name="TELEGRAM_PROXY" value=""/>
     </php>
 </phpunit>

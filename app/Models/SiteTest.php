@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class SiteTest extends Model
 {
@@ -28,6 +29,16 @@ class SiteTest extends Model
     public function site(): BelongsTo
     {
         return $this->belongsTo(Site::class);
+    }
+
+    /**
+     * Привязки каналов уведомлений к этому тесту.
+     *
+     * @return HasMany<SiteTestNotificationChannel, $this>
+     */
+    public function notificationChannelAssignments(): HasMany
+    {
+        return $this->hasMany(SiteTestNotificationChannel::class);
     }
 
     /**

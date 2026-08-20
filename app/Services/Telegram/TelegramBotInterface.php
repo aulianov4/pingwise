@@ -2,22 +2,12 @@
 
 namespace App\Services\Telegram;
 
-use App\Models\TelegramChat;
-use Illuminate\Support\Collection;
-
 /**
  * Интерфейс Telegram-бота (DIP).
  * Клиенты зависят от абстракции, а не от конкретной реализации.
  */
 interface TelegramBotInterface
 {
-    /**
-     * Синхронизировать список чатов бота из Telegram API
-     *
-     * @return Collection<int, TelegramChat>
-     */
-    public function syncChats(): Collection;
-
     /**
      * Отправить сообщение в чат
      */
@@ -27,4 +17,21 @@ interface TelegramBotInterface
      * Проверить, настроен ли бот (есть ли токен)
      */
     public function isConfigured(): bool;
+
+    /**
+     * Установить webhook для входящих обновлений.
+     */
+    public function setWebhook(string $url): bool;
+
+    /**
+     * Удалить webhook.
+     */
+    public function deleteWebhook(bool $dropPendingUpdates = true): bool;
+
+    /**
+     * Получить обновления через long poll.
+     *
+     * @return list<array<string, mixed>>
+     */
+    public function getUpdates(?int $offset = null, int $timeout = 0): array;
 }

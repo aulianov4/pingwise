@@ -15,7 +15,7 @@ class InitTestsCommandTest extends TestCase
         $site = Site::factory()->createQuietly();
         $this->artisan('pingwise:init-tests', ['--site' => $site->id])
             ->assertSuccessful();
-        $this->assertDatabaseCount('site_tests', 4);
+        $this->assertDatabaseCount('site_tests', 3);
         $this->assertDatabaseHas('site_tests', [
             'site_id' => $site->id,
             'test_type' => 'availability',
@@ -28,7 +28,7 @@ class InitTestsCommandTest extends TestCase
             'site_id' => $site->id,
             'test_type' => 'domain',
         ]);
-        $this->assertDatabaseHas('site_tests', [
+        $this->assertDatabaseMissing('site_tests', [
             'site_id' => $site->id,
             'test_type' => 'sitemap',
         ]);
@@ -39,7 +39,7 @@ class InitTestsCommandTest extends TestCase
         Site::factory()->count(3)->createQuietly();
         $this->artisan('pingwise:init-tests')
             ->assertSuccessful();
-        $this->assertDatabaseCount('site_tests', 12);
+        $this->assertDatabaseCount('site_tests', 9);
     }
 
     public function test_init_tests_with_invalid_site_returns_failure(): void
@@ -56,6 +56,6 @@ class InitTestsCommandTest extends TestCase
             ->assertSuccessful();
         $this->artisan('pingwise:init-tests', ['--site' => $site->id])
             ->assertSuccessful();
-        $this->assertDatabaseCount('site_tests', 4);
+        $this->assertDatabaseCount('site_tests', 3);
     }
 }

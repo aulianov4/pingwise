@@ -2,14 +2,13 @@
 
 namespace App\Services\Telegram;
 
-use App\Models\TelegramChat;
-use Illuminate\Support\Collection;
+use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
 /**
  * Сервис взаимодействия с Telegram Bot API (SRP).
- * Ответственность: HTTP-запросы к Telegram API, синхронизация чатов, отправка сообщений.
+ * Ответственность: HTTP-запросы к Telegram API и отправка сообщений.
  */
 class TelegramBotService implements TelegramBotInterface
 {
@@ -17,63 +16,16 @@ class TelegramBotService implements TelegramBotInterface
 
     public function __construct(
         protected readonly string $token,
+        protected readonly string $apiBaseUrl = 'https://api.telegram.org',
+        protected readonly ?string $proxy = null,
     ) {
-        $this->baseUrl = "https://api.telegram.org/bot{$this->token}";
+        $host = $this->apiBaseUrl !== '' ? $this->apiBaseUrl : 'https://api.telegram.org';
+        $this->baseUrl = rtrim($host, '/').'/bot'.$this->token;
     }
 
     public function isConfigured(): bool
     {
         return ! empty($this->token);
-    }
-
-    /**
-     * Синхронизировать список групп/супергрупп из Telegram API.
-     * Вызывает getUpdates, парсит чаты и upsert в БД.
-     */
-    public function syncChats(): Collection
-    {
-        if (! $this->isConfigured()) {
-            Log::warning('Telegram bot token is not configured');
-
-            return collect();
-        }
-
-        try {
-            $response = Http::get("{$this->baseUrl}/getUpdates", [
-                'allowed_updates' => json_encode(['message', 'my_chat_member']),
-            ]);
-
-            if (! $response->successful()) {
-                Log::error('Telegram getUpdates failed', [
-                    'status' => $response->status(),
-                    'body' => $response->body(),
-                ]);
-
-                return collect();
-            }
-
-            $updates = $response->json('result', []);
-            $chats = $this->extractChatsFromUpdates($updates);
-
-            // Upsert чатов в БД
-            $telegramChats = collect();
-            foreach ($chats as $chatData) {
-                $chat = TelegramChat::updateOrCreate(
-                    ['chat_id' => $chatData['id']],
-                    [
-                        'title' => $chatData['title'] ?? "Chat {$chatData['id']}",
-                        'type' => $chatData['type'],
-                    ]
-                );
-                $telegramChats->push($chat);
-            }
-
-            return $telegramChats;
-        } catch (\Exception $e) {
-            Log::error('Failed to sync Telegram chats: '.$e->getMessage());
-
-            return collect();
-        }
     }
 
     /**
@@ -88,7 +40,7 @@ class TelegramBotService implements TelegramBotInterface
         }
 
         try {
-            $response = Http::post("{$this->baseUrl}/sendMessage", [
+            $response = $this->http()->post("{$this->baseUrl}/sendMessage", [
                 'chat_id' => $chatId,
                 'text' => $text,
                 'parse_mode' => $parseMode,
@@ -113,31 +65,124 @@ class TelegramBotService implements TelegramBotInterface
         }
     }
 
-    /**
-     * Извлечь уникальные группы/супергруппы/каналы из обновлений
-     */
-    protected function extractChatsFromUpdates(array $updates): array
+    public function setWebhook(string $url): bool
     {
-        $chats = [];
+        if (! $this->isConfigured()) {
+            Log::warning('Telegram bot token is not configured, webhook not set');
 
-        foreach ($updates as $update) {
-            // Из обычных сообщений
-            if (isset($update['message']['chat'])) {
-                $chat = $update['message']['chat'];
-                if (in_array($chat['type'], ['group', 'supergroup', 'channel'])) {
-                    $chats[$chat['id']] = $chat;
-                }
-            }
-
-            // Из событий my_chat_member (когда бота добавляют в группу)
-            if (isset($update['my_chat_member']['chat'])) {
-                $chat = $update['my_chat_member']['chat'];
-                if (in_array($chat['type'], ['group', 'supergroup', 'channel'])) {
-                    $chats[$chat['id']] = $chat;
-                }
-            }
+            return false;
         }
 
-        return $chats;
+        try {
+            $response = $this->http()->post("{$this->baseUrl}/setWebhook", [
+                'url' => $url,
+                'allowed_updates' => json_encode(['message']),
+                'drop_pending_updates' => true,
+            ]);
+
+            if (! $response->successful() || ! $response->json('ok')) {
+                Log::error('Telegram setWebhook failed', [
+                    'status' => $response->status(),
+                    'body' => $response->body(),
+                ]);
+
+                return false;
+            }
+
+            return true;
+        } catch (\Exception $e) {
+            Log::error('Failed to set Telegram webhook: '.$e->getMessage());
+
+            return false;
+        }
+    }
+
+    public function deleteWebhook(bool $dropPendingUpdates = true): bool
+    {
+        if (! $this->isConfigured()) {
+            return false;
+        }
+
+        try {
+            $response = $this->http()->post("{$this->baseUrl}/deleteWebhook", [
+                'drop_pending_updates' => $dropPendingUpdates,
+            ]);
+
+            return $response->successful() && (bool) $response->json('ok');
+        } catch (\Exception $e) {
+            Log::error('Failed to delete Telegram webhook: '.$e->getMessage());
+
+            return false;
+        }
+    }
+
+    /**
+     * @return list<array<string, mixed>>
+     */
+    public function getUpdates(?int $offset = null, int $timeout = 0): array
+    {
+        if (! $this->isConfigured()) {
+            return [];
+        }
+
+        try {
+            $updates = $this->requestUpdates($offset, $timeout);
+
+            return $updates ?? [];
+        } catch (\Exception $e) {
+            Log::error('Failed to get Telegram updates: '.$e->getMessage());
+
+            return [];
+        }
+    }
+
+    /**
+     * @return list<array<string, mixed>>|null
+     */
+    protected function requestUpdates(?int $offset, int $timeout): ?array
+    {
+        $payload = [
+            'timeout' => $timeout,
+            'allowed_updates' => json_encode(['message']),
+        ];
+
+        if ($offset !== null) {
+            $payload['offset'] = $offset;
+        }
+
+        $response = $this->http(max(30, $timeout + 15))->post("{$this->baseUrl}/getUpdates", $payload);
+
+        if ($response->status() === 409) {
+            $this->deleteWebhook(dropPendingUpdates: false);
+            $response = $this->http(max(30, $timeout + 15))->post("{$this->baseUrl}/getUpdates", $payload);
+        }
+
+        if (! $response->successful() || ! $response->json('ok')) {
+            Log::error('Telegram getUpdates failed', [
+                'status' => $response->status(),
+                'body' => $response->body(),
+            ]);
+
+            return null;
+        }
+
+        $result = $response->json('result');
+
+        if (! is_array($result)) {
+            return [];
+        }
+
+        return array_values(array_filter($result, 'is_array'));
+    }
+
+    protected function http(?int $timeout = null): PendingRequest
+    {
+        $request = Http::timeout($timeout ?? 30)->connectTimeout(20);
+
+        if (filled($this->proxy)) {
+            $request = $request->withOptions(['proxy' => $this->proxy]);
+        }
+
+        return $request;
     }
 }

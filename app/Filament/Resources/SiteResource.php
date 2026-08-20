@@ -4,9 +4,9 @@ namespace App\Filament\Resources;
 
 use App\Enums\ProjectRole;
 use App\Filament\Resources\SiteResource\Pages;
+use App\Models\NotificationChannel;
 use App\Models\Project;
 use App\Models\Site;
-use App\Models\TelegramChat;
 use App\Models\User;
 use App\Services\TestService;
 use BackedEnum;
@@ -46,9 +46,6 @@ class SiteResource extends Resource
     {
         /** @var User $user */
         $user = Auth::user();
-
-        $canEditTelegram = $user->isSuperadmin()
-            || $user->projects()->wherePivot('role', ProjectRole::Admin->value)->exists();
 
         return $schema
             ->schema([
@@ -98,7 +95,10 @@ class SiteResource extends Resource
                 Section::make('Настройки тестов')
                     ->schema([
                         Forms\Components\Repeater::make('siteTests')
-                            ->relationship('siteTests')
+                            ->relationship(
+                                'siteTests',
+                                modifyQueryUsing: fn (Builder $query): Builder => $query->where('test_type', '!=', 'sitemap'),
+                            )
                             ->schema([
                                 Forms\Components\Select::make('test_type')
                                     ->label('Тип теста')
@@ -116,6 +116,50 @@ class SiteResource extends Resource
                                     ->required()
                                     ->default(fn ($record, $get) => app(TestService::class)->getTest($get('test_type'))?->getDefaultInterval() ?? 60
                                     ),
+                                Forms\Components\Repeater::make('notificationChannelAssignments')
+                                    ->relationship()
+                                    ->label('Уведомления')
+                                    ->schema([
+                                        Forms\Components\Select::make('notification_channel_id')
+                                            ->label('Канал')
+                                            ->options(function ($livewire): array {
+                                                $site = $livewire->getRecord();
+
+                                                if (! $site instanceof Site || $site->project_id === null) {
+                                                    return [];
+                                                }
+
+                                                return NotificationChannel::query()
+                                                    ->where('project_id', $site->project_id)
+                                                    ->orderBy('name')
+                                                    ->get()
+                                                    ->mapWithKeys(fn (NotificationChannel $channel): array => [
+                                                        $channel->id => $channel->isConnected()
+                                                            ? $channel->name
+                                                            : $channel->name.' (ожидает /connect)',
+                                                    ])
+                                                    ->all();
+                                            })
+                                            ->required()
+                                            ->distinct()
+                                            ->searchable(),
+                                        Forms\Components\Toggle::make('alerts')
+                                            ->label('Алерт')
+                                            ->default(false),
+                                        Forms\Components\Toggle::make('daily_summary')
+                                            ->label('Саммари за сутки')
+                                            ->default(false),
+                                        Forms\Components\Toggle::make('weekly_summary')
+                                            ->label('Саммари за неделю')
+                                            ->default(false),
+                                        Forms\Components\Toggle::make('monthly_summary')
+                                            ->label('Саммари за месяц')
+                                            ->default(false),
+                                    ])
+                                    ->columns(2)
+                                    ->defaultItems(0)
+                                    ->addActionLabel('Добавить канал')
+                                    ->helperText('Пусто — уведомления не отправляются. Каналы добавляются в разделе «Каналы уведомлений».'),
                                 Section::make('Настройки Sitemap')
                                     ->schema([
                                         Forms\Components\TextInput::make('settings.max_crawl_pages')
@@ -156,27 +200,6 @@ class SiteResource extends Resource
                             ->deletable(false)
                             ->reorderable(false),
                     ])
-                    ->visibleOn('edit')
-                    ->collapsible()
-                    ->columnSpanFull(),
-                Section::make('Telegram-уведомления')
-                    ->schema([
-                        Forms\Components\Select::make('telegram_chat_id')
-                            ->label('Telegram-группа')
-                            ->options(fn () => TelegramChat::pluck('title', 'id'))
-                            ->placeholder('Не выбрана')
-                            ->searchable()
-                            ->helperText('Добавьте бота @pingwise_bot в группу и в течение 5 минут он появится в этом списке'),
-                        Forms\Components\Toggle::make('notification_settings.alerts_enabled')
-                            ->label('Алерты при смене статуса')
-                            ->helperText('Отправлять уведомление при изменении статуса теста')
-                            ->default(false),
-                        Forms\Components\Toggle::make('notification_settings.summary_enabled')
-                            ->label('Ежесуточное саммари')
-                            ->helperText('Отправлять сводку по всем тестам каждый день в 09:00')
-                            ->default(false),
-                    ])
-                    ->visible($canEditTelegram)
                     ->visibleOn('edit')
                     ->collapsible()
                     ->columnSpanFull(),

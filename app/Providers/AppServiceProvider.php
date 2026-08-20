@@ -2,10 +2,11 @@
 
 namespace App\Providers;
 
-use App\Events\TestStatusChanged;
-use App\Listeners\SendTelegramAlert;
 use App\Models\Site;
 use App\Observers\SiteObserver;
+use App\Services\Notifications\ChannelDriverRegistry;
+use App\Services\Notifications\NotificationDispatcher;
+use App\Services\Notifications\TelegramChannelDriver;
 use App\Services\Sitemap\SiteCrawler;
 use App\Services\Sitemap\SiteCrawlerInterface;
 use App\Services\Sitemap\SitemapChecker;
@@ -16,6 +17,7 @@ use App\Services\Ssl\SslChecker;
 use App\Services\Ssl\SslCheckerInterface;
 use App\Services\Telegram\TelegramBotInterface;
 use App\Services\Telegram\TelegramBotService;
+use App\Services\Telegram\TelegramConnectService;
 use App\Services\Telegram\TelegramMessageFormatter;
 use App\Services\TestRegistry;
 use App\Services\TestService;
@@ -23,11 +25,9 @@ use App\Services\Whois\WhoisClient;
 use App\Services\Whois\WhoisClientInterface;
 use App\Tests\AvailabilityTest;
 use App\Tests\DomainTest;
-use App\Tests\SitemapAuditTest;
 use App\Tests\SslTest;
 use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Support\Facades\App;
-use Illuminate\Support\Facades\Event;
 use Illuminate\Support\ServiceProvider;
 
 class AppServiceProvider extends ServiceProvider
@@ -53,11 +53,12 @@ class AppServiceProvider extends ServiceProvider
 
         // Регистрация отдельных тестов (OCP — для добавления нового теста
         // достаточно добавить строку сюда и создать класс, не меняя существующий код)
+        // SitemapAuditTest временно не регистрируется: парсинг sitemap и краулинг
+        // работают некорректно и не должны запускаться планировщиком.
         $this->app->tag([
             AvailabilityTest::class,
             SslTest::class,
             DomainTest::class,
-            SitemapAuditTest::class,
         ], 'site_tests');
 
         // Реестр тестов — получает тесты через tagged bindings
@@ -75,12 +76,28 @@ class AppServiceProvider extends ServiceProvider
 
         // Telegram — привязка интерфейса к реализации (DIP)
         $this->app->singleton(TelegramBotInterface::class, function ($app) {
+            $proxy = config('services.telegram.proxy');
+
             return new TelegramBotService(
                 config('services.telegram.bot_token', ''),
+                config('services.telegram.api_base_url', 'https://api.telegram.org'),
+                is_string($proxy) && $proxy !== '' ? $proxy : null,
             );
         });
 
         $this->app->singleton(TelegramMessageFormatter::class);
+        $this->app->singleton(TelegramConnectService::class);
+
+        // Каналы уведомлений (OCP — новый драйвер = новая строка в tag)
+        $this->app->tag([
+            TelegramChannelDriver::class,
+        ], 'notification_channel_drivers');
+
+        $this->app->singleton(ChannelDriverRegistry::class, function ($app) {
+            return new ChannelDriverRegistry($app->tagged('notification_channel_drivers'));
+        });
+
+        $this->app->singleton(NotificationDispatcher::class);
     }
 
     /**
@@ -94,8 +111,5 @@ class AppServiceProvider extends ServiceProvider
 
         // Регистрация Observer вместо логики в Site::boot() (SRP, DIP)
         Site::observe(SiteObserver::class);
-
-        // Telegram-алерт при смене статуса теста
-        Event::listen(TestStatusChanged::class, SendTelegramAlert::class);
     }
 }

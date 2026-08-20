@@ -37,30 +37,4 @@ class SiteFactory extends Factory
             'is_active' => false,
         ]);
     }
-
-    /**
-     * С включёнными Telegram-алертами.
-     */
-    public function withTelegramAlerts(): static
-    {
-        return $this->state(fn (array $attributes) => [
-            'notification_settings' => [
-                'alerts_enabled' => true,
-                'summary_enabled' => false,
-            ],
-        ]);
-    }
-
-    /**
-     * С включённым ежесуточным саммари.
-     */
-    public function withTelegramSummary(): static
-    {
-        return $this->state(fn (array $attributes) => [
-            'notification_settings' => [
-                'alerts_enabled' => false,
-                'summary_enabled' => true,
-            ],
-        ]);
-    }
 }

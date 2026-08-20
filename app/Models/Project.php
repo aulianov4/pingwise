@@ -37,6 +37,16 @@ class Project extends Model
     }
 
     /**
+     * Каналы уведомлений проекта.
+     *
+     * @return HasMany<NotificationChannel, $this>
+     */
+    public function notificationChannels(): HasMany
+    {
+        return $this->hasMany(NotificationChannel::class);
+    }
+
+    /**
      * Получить пользователей проекта с ролями.
      */
     public function users(): BelongsToMany

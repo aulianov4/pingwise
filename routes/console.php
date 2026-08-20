@@ -19,12 +19,20 @@ Schedule::command('pingwise:cleanup')
     ->dailyAt('03:00')
     ->withoutOverlapping();
 
-// Синхронизация Telegram-групп каждые 5 минут
-Schedule::command('pingwise:telegram:sync')
-    ->everyFiveMinutes()
+Schedule::command('pingwise:telegram:poll --timeout=25')
+    ->everyMinute()
+    ->withoutOverlapping()
+    ->runInBackground();
+
+// Саммари уведомлений по каналам
+Schedule::command('pingwise:notifications:summary --period=daily')
+    ->dailyAt('09:00')
     ->withoutOverlapping();
 
-// Ежесуточное саммари в Telegram в 09:00
-Schedule::command('pingwise:telegram:summary')
-    ->dailyAt('09:00')
+Schedule::command('pingwise:notifications:summary --period=weekly')
+    ->weeklyOn(1, '09:00')
+    ->withoutOverlapping();
+
+Schedule::command('pingwise:notifications:summary --period=monthly')
+    ->monthlyOn(1, '09:00')
     ->withoutOverlapping();

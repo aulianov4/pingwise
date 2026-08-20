@@ -2,10 +2,11 @@
 
 namespace App\Services\Telegram;
 
+use App\Enums\SummaryPeriod;
+use App\Models\NotificationChannel;
 use App\Models\Site;
 use App\Models\TestResult;
 use App\Services\TestRegistry;
-use Illuminate\Support\Collection;
 
 /**
  * Форматирование Telegram-сообщений (SRP).
@@ -53,74 +54,47 @@ class TelegramMessageFormatter
     }
 
     /**
-     * Форматировать ежесуточное саммари для сайта
+     * Форматировать саммари канала за период.
+     *
+     * @param  list<array{site: Site, test_type: string, last_result: ?TestResult, success: int, failed: int, warning: int, total: int}>  $items
      */
-    public function formatDailySummary(Site $site, Collection $results): string
+    public function formatChannelSummary(NotificationChannel $channel, SummaryPeriod $period, array $items): string
     {
-        $total = $results->count();
-        $success = $results->where('status', 'success')->count();
-        $failed = $results->where('status', 'failed')->count();
-        $warnings = $results->where('status', 'warning')->count();
-
-        $uptimePercent = $total > 0 ? round(($success / $total) * 100, 1) : 0;
-
-        $emoji = match (true) {
-            $uptimePercent >= 99 => '🟢',
-            $uptimePercent >= 95 => '🟡',
-            default => '🔴',
-        };
+        $projectName = $channel->project?->name ?? 'Проект';
+        $periodLabel = $period->label();
 
         $lines = [
-            "📊 <b>Сводка за сутки: {$site->name}</b>",
-            '',
-            "{$emoji} Аптайм: <b>{$uptimePercent}%</b>",
-            "Всего проверок: {$total}",
-            "✅ Успешных: {$success}",
+            "📊 <b>Сводка за {$periodLabel}: {$projectName}</b>",
+            "Канал: {$channel->name}",
         ];
 
-        if ($warnings > 0) {
-            $lines[] = "⚠️ Предупреждений: {$warnings}";
-        }
-        if ($failed > 0) {
-            $lines[] = "🔴 Ошибок: {$failed}";
-        }
+        $bySite = collect($items)->groupBy(fn (array $item): int => $item['site']->id);
 
-        // Группируем по типам тестов
-        $byType = $results->groupBy('test_type');
-        if ($byType->count() > 1) {
+        foreach ($bySite as $siteItems) {
+            /** @var Site $site */
+            $site = $siteItems->first()['site'];
             $lines[] = '';
-            $lines[] = '<b>По тестам:</b>';
+            $lines[] = '<b>'.htmlspecialchars($site->name, ENT_QUOTES).'</b>';
+            $lines[] = htmlspecialchars($site->url, ENT_QUOTES);
 
-            foreach ($byType as $testType => $typeResults) {
-                $typeTotal = $typeResults->count();
-                $typeSuccess = $typeResults->where('status', 'success')->count();
-                $typePercent = $typeTotal > 0 ? round(($typeSuccess / $typeTotal) * 100, 1) : 0;
-                $testName = $this->getTestName($testType);
-                $typeEmoji = $typePercent >= 99 ? '✅' : ($typePercent >= 95 ? '⚠️' : '🔴');
-
-                $lines[] = "  {$typeEmoji} {$testName}: {$typePercent}% ({$typeSuccess}/{$typeTotal})";
-            }
-        }
-
-        // Последний статус каждого теста
-        $lastByType = $results->groupBy('test_type')->map(fn ($items) => $items->sortByDesc('checked_at')->first());
-        if ($lastByType->isNotEmpty()) {
-            $lines[] = '';
-            $lines[] = '<b>Текущий статус:</b>';
-            foreach ($lastByType as $testType => $lastResult) {
-                $testName = $this->getTestName($testType);
-                $statusEmoji = match ($lastResult->status) {
+            foreach ($siteItems as $item) {
+                $testName = $this->getTestName($item['test_type']);
+                $last = $item['last_result'];
+                $statusEmoji = match ($last?->status) {
                     'success' => '✅',
                     'warning' => '⚠️',
                     'failed' => '🔴',
                     default => '❓',
                 };
-                $lines[] = "  {$statusEmoji} {$testName}: {$this->getStatusLabel($lastResult->status)}";
+                $statusLabel = $last ? $this->getStatusLabel($last->status) : 'нет данных';
+                $lines[] = "  {$statusEmoji} {$testName}: {$statusLabel} ({$item['success']}/{$item['total']})";
             }
         }
 
-        $lines[] = '';
-        $lines[] = '🔗 '.htmlspecialchars($site->url, ENT_QUOTES);
+        if ($items === []) {
+            $lines[] = '';
+            $lines[] = 'Нет данных за период.';
+        }
 
         return implode("\n", $lines);
     }
